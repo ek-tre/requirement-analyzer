@@ -10,6 +10,7 @@ const SECTIONS = [
   { id: "edges", label: "Edge Cases", icon: "◆" },
   { id: "scope", label: "Scope & Versions", icon: "◫" },
   { id: "questions", label: "Open Questions", icon: "◻" },
+  { id: "notes", label: "Notes", icon: "◐" },
   { id: "summary", label: "Summary", icon: "◼" },
 ];
 
@@ -30,7 +31,7 @@ const VERSION_COLORS = {
 const PRIORITY_LEVELS = ["Must", "Should", "Could", "Won't"];
 
 const ASSUMPTION_STATUSES = ["Unvalidated", "Needs Research", "Validated", "Disproven"];
-const QUESTION_TYPES = ["Can Answer Now", "Needs Stakeholder Decision", "Needs User Research"];
+const QUESTION_TYPES = ["Stakeholder", "User Research", "Developer", "Designer", "Business Analyst"];
 const QUESTION_STATUSES = ["Open", "Answered"];
 const CONFIDENCE_LEVELS = ["Low", "Medium", "High"];
 
@@ -51,6 +52,7 @@ const createBlankAnalysis = (name = "Untitled Analysis") => ({
   id: generateId(),
   name,
   phase: "",
+  gistId: "",
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   overview: { featureName: "", date: "", requestor: "", description: "", origin: "" },
@@ -68,8 +70,87 @@ const createBlankAnalysis = (name = "Untitled Analysis") => ({
     items: [],
   },
   questions: [],
+  notes: "",
   summary: { confidence: "", concerns: "", nextSteps: "" },
 });
+
+// Migrate old analysis data to current structure
+const migrateAnalysis = (analysis) => {
+  const blank = createBlankAnalysis();
+  return {
+    ...blank,
+    ...analysis,
+    notes: analysis.notes ?? "",
+    gistId: analysis.gistId ?? "",
+  };
+};
+
+// GitHub Gist API functions
+const saveToGist = async (analysis, token) => {
+  const headers = {
+    "Accept": "application/vnd.github+json",
+    "Authorization": `Bearer ${token}`,
+    "X-GitHub-Api-Version": "2022-11-28"
+  };
+  
+  const gistData = {
+    description: `Requirement Analysis: ${analysis.name}`,
+    public: false,
+    files: {
+      "analysis.json": {
+        content: JSON.stringify(analysis, null, 2)
+      }
+    }
+  };
+
+  try {
+    if (analysis.gistId) {
+      // Update existing gist
+      const response = await fetch(`https://api.github.com/gists/${analysis.gistId}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify(gistData)
+      });
+      if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
+      return await response.json();
+    } else {
+      // Create new gist
+      const response = await fetch("https://api.github.com/gists", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(gistData)
+      });
+      if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
+      return await response.json();
+    }
+  } catch (error) {
+    console.error("Failed to save gist:", error);
+    throw error;
+  }
+};
+
+const loadFromGist = async (gistId, token) => {
+  const headers = {
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28"
+  };
+  
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  try {
+    const response = await fetch(`https://api.github.com/gists/${gistId}`, { headers });
+    if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
+    const gist = await response.json();
+    const file = gist.files["analysis.json"];
+    if (!file) throw new Error("No analysis.json found in gist");
+    return JSON.parse(file.content);
+  } catch (error) {
+    console.error("Failed to load gist:", error);
+    throw error;
+  }
+};
 
 function getCompletion(analysis) {
   let filled = 0, total = 0;
@@ -107,6 +188,7 @@ function getSectionCompletion(analysis, sectionId) {
       total++; if (analysis.scope.items.length > 0) filled++;
       break;
     case "questions": total = 1; if (analysis.questions.length > 0) filled = 1; break;
+    case "notes": check(analysis.notes); break;
     case "summary": Object.values(analysis.summary).forEach(check); break;
   }
   return total > 0 ? Math.round((filled / total) * 100) : 0;
@@ -122,7 +204,7 @@ function exportToMarkdown(a) {
 
   h("Overview");
   f("Feature", a.overview.featureName); f("Date", a.overview.date);
-  f("Requestor", a.overview.requestor); f("Origin", a.overview.origin);
+  f("Stakeholders", a.overview.requestor); f("Origin", a.overview.origin);
   if (a.overview.description) lines.push(`\n${a.overview.description}`);
 
   h("Problem & Purpose");
@@ -173,6 +255,10 @@ function exportToMarkdown(a) {
     lines.push(`${i + 1}. [${status}] (${q.type}) ${q.text}`);
     if (q.answer?.trim()) lines.push(`   → ${q.answer}`);
   });
+
+  h("Notes");
+  if (a.notes?.trim()) lines.push(a.notes);
+  else lines.push("*No notes.*");
 
   h("Summary");
   f("Confidence", a.summary.confidence); f("Key Concerns", a.summary.concerns);
@@ -226,7 +312,7 @@ const VersionBadge = ({ version, size = "sm" }) => {
   );
 };
 
-const Pill = ({ active, onClick, children, completion }) => (
+const Pill = ({ active, onClick, children, completion, count }) => (
   <button
     onClick={onClick}
     className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-all whitespace-nowrap ${
@@ -234,12 +320,22 @@ const Pill = ({ active, onClick, children, completion }) => (
     }`}
   >
     <span>{children}</span>
-    {completion > 0 && (
-      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-        active ? "bg-slate-600 text-slate-200" : completion === 100 ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
-      }`}>
-        {completion}%
-      </span>
+    {count !== undefined ? (
+      count && (
+        <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+          active ? "bg-slate-600 text-slate-200" : "bg-slate-100 text-slate-500"
+        }`}>
+          {count}
+        </span>
+      )
+    ) : (
+      completion > 0 && (
+        <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+          active ? "bg-slate-600 text-slate-200" : completion === 100 ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+        }`}>
+          {completion}%
+        </span>
+      )
     )}
   </button>
 );
@@ -261,7 +357,7 @@ const OverviewSection = ({ data, phase, onChange, onPhaseChange }) => (
       <Field label="Date" value={data.date} onChange={(v) => onChange({ ...data, date: v })} />
     </div>
     <div className="grid grid-cols-2 gap-4">
-      <Field label="Requestor / Source" value={data.requestor} onChange={(v) => onChange({ ...data, requestor: v })} />
+      <Field label="Stakeholders / Source" value={data.requestor} onChange={(v) => onChange({ ...data, requestor: v })} />
       <Select label="Requirement Origin" value={data.origin} options={ORIGIN_OPTIONS} onChange={(v) => onChange({ ...data, origin: v })} />
     </div>
     <div className="mb-4">
@@ -314,35 +410,109 @@ const UserContextSection = ({ data, onChange }) => (
 );
 
 const AssumptionsSection = ({ data, onChange }) => {
-  const addItem = () => onChange([...data, { id: generateId(), text: "", status: "Unvalidated" }]);
+  const [statusFilter, setStatusFilter] = useState("Open");
+  const addItem = () => onChange([...data, { id: generateId(), text: "", status: "Unvalidated", tags: [] }]);
   const updateItem = (id, field, val) =>
     onChange(data.map((item) => (item.id === id ? { ...item, [field]: val } : item)));
   const removeItem = (id) => onChange(data.filter((item) => item.id !== id));
 
+  const autoResize = (e) => {
+    e.target.style.height = "auto";
+    e.target.style.height = e.target.scrollHeight + "px";
+  };
+
+  const textareaRef = (el) => {
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = el.scrollHeight + "px";
+    }
+  };
+
+  // Filter by status: Open = Unvalidated/Needs Research, Answered = Validated/Disproven
+  const filteredData = statusFilter === "Open" 
+    ? data.filter(item => item.status === "Unvalidated" || item.status === "Needs Research")
+    : data.filter(item => item.status === "Validated" || item.status === "Disproven");
+
   return (
     <div>
       <SectionHeader title="Assumptions" description="Every requirement carries hidden assumptions. Name them so you can validate or flag them." />
+      {data.length > 0 && (
+        <div className="flex items-center justify-end mb-4">
+          <div className="flex gap-1">
+            <button
+              onClick={() => setStatusFilter("Open")}
+              className={`px-2 py-1 text-xs rounded ${
+                statusFilter === "Open" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              Open
+            </button>
+            <button
+              onClick={() => setStatusFilter("Answered")}
+              className={`px-2 py-1 text-xs rounded ${
+                statusFilter === "Answered" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              Answered
+            </button>
+          </div>
+        </div>
+      )}
       {data.length === 0 && (
         <div className="text-center py-8 text-slate-400 text-sm border border-dashed border-slate-200 rounded-lg mb-4">
           No assumptions logged yet. Start adding them below.
         </div>
       )}
       <div className="space-y-3 mb-4">
-        {data.map((item, i) => (
+        {filteredData.map((item, i) => (
           <div key={item.id} className="flex gap-2 items-start p-3 bg-slate-50 rounded-lg border border-slate-100">
             <span className="text-xs text-slate-400 mt-2.5 font-mono w-5 shrink-0">{i + 1}</span>
             <div className="flex-1 space-y-2">
-              <input
-                className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-300"
+              <textarea
+                ref={textareaRef}
+                className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-300 resize-none overflow-hidden"
+                style={{ minHeight: "36px" }}
                 placeholder="Describe the assumption..."
-                value={item.text} onChange={(e) => updateItem(item.id, "text", e.target.value)}
+                value={item.text}
+                onChange={(e) => {
+                  updateItem(item.id, "text", e.target.value);
+                  autoResize(e);
+                }}
+                onInput={autoResize}
+                rows={1}
               />
-              <select
-                className="px-2 py-1 text-xs border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-300"
-                value={item.status} onChange={(e) => updateItem(item.id, "status", e.target.value)}
-              >
-                {ASSUMPTION_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
+              <div className="flex gap-2 flex-wrap items-center">
+                <select
+                  className="px-2 py-1 text-xs border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-300"
+                  value={item.status} onChange={(e) => updateItem(item.id, "status", e.target.value)}
+                >
+                  {ASSUMPTION_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={(item.tags || []).includes("B2B")}
+                    onChange={(e) => {
+                      const tags = item.tags || [];
+                      updateItem(item.id, "tags", e.target.checked ? [...tags.filter(t => t !== "B2B"), "B2B"] : tags.filter(t => t !== "B2B"));
+                    }}
+                    className="rounded border-slate-300 text-slate-600 focus:ring-slate-300"
+                  />
+                  B2B
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={(item.tags || []).includes("B2C")}
+                    onChange={(e) => {
+                      const tags = item.tags || [];
+                      updateItem(item.id, "tags", e.target.checked ? [...tags.filter(t => t !== "B2C"), "B2C"] : tags.filter(t => t !== "B2C"));
+                    }}
+                    className="rounded border-slate-300 text-slate-600 focus:ring-slate-300"
+                  />
+                  B2C
+                </label>
+              </div>
             </div>
             <button onClick={() => removeItem(item.id)} className="text-slate-300 hover:text-red-400 text-lg mt-1.5 px-1">×</button>
           </div>
@@ -409,6 +579,18 @@ const ScopeSection = ({ data, onChange }) => {
     setItems(items.map((it) => (it.id === id ? { ...it, [field]: val } : it)));
   const removeItem = (id) => setItems(items.filter((it) => it.id !== id));
 
+  const autoResize = (e) => {
+    e.target.style.height = "auto";
+    e.target.style.height = e.target.scrollHeight + "px";
+  };
+
+  const textareaRef = (el) => {
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = el.scrollHeight + "px";
+    }
+  };
+
   // Group items by version for the summary view
   const byVersion = useMemo(() => {
     const grouped = {};
@@ -472,15 +654,31 @@ const ScopeSection = ({ data, onChange }) => {
                   <div className="flex gap-2 items-start">
                     <div className={`w-1 self-stretch rounded-full shrink-0 ${colors.dot}`} />
                     <div className="flex-1 space-y-2">
-                      <input
-                        className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-300 font-medium"
+                      <textarea
+                        ref={textareaRef}
+                        className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-300 font-medium resize-none overflow-hidden"
+                        style={{ minHeight: "36px" }}
                         placeholder="Scope item name..."
-                        value={item.item} onChange={(e) => updateItem(item.id, "item", e.target.value)}
+                        value={item.item}
+                        onChange={(e) => {
+                          updateItem(item.id, "item", e.target.value);
+                          autoResize(e);
+                        }}
+                        onInput={autoResize}
+                        rows={1}
                       />
-                      <input
-                        className="w-full px-2 py-1.5 text-xs border border-slate-100 rounded bg-slate-50 focus:outline-none focus:ring-1 focus:ring-slate-300"
+                      <textarea
+                        ref={textareaRef}
+                        className="w-full px-2 py-1.5 text-xs border border-slate-100 rounded bg-slate-50 focus:outline-none focus:ring-1 focus:ring-slate-300 resize-none overflow-hidden"
+                        style={{ minHeight: "32px" }}
                         placeholder="Brief description (optional)..."
-                        value={item.description} onChange={(e) => updateItem(item.id, "description", e.target.value)}
+                        value={item.description}
+                        onChange={(e) => {
+                          updateItem(item.id, "description", e.target.value);
+                          autoResize(e);
+                        }}
+                        onInput={autoResize}
+                        rows={1}
                       />
                       <div className="flex gap-2 flex-wrap items-center">
                         <select
@@ -585,63 +783,174 @@ const ScopeSection = ({ data, onChange }) => {
 };
 
 const QuestionsSection = ({ data, onChange }) => {
+  const [statusFilter, setStatusFilter] = useState("Open");
   const addItem = () =>
-    onChange([...data, { id: generateId(), text: "", type: "Can Answer Now", status: "Open", answer: "" }]);
+    onChange([...data, { id: generateId(), text: "", type: "Stakeholder", status: "Open", answer: "", dependency: false, tags: [] }]);
   const updateItem = (id, field, val) =>
     onChange(data.map((item) => (item.id === id ? { ...item, [field]: val } : item)));
   const removeItem = (id) => onChange(data.filter((item) => item.id !== id));
   const openCount = data.filter((q) => q.status === "Open").length;
 
+  const autoResize = (e) => {
+    e.target.style.height = "auto";
+    e.target.style.height = e.target.scrollHeight + "px";
+  };
+
+  const textareaRef = (el) => {
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = el.scrollHeight + "px";
+    }
+  };
+
+  // Filter by status first
+  const filteredData = data.filter(item => item.status === statusFilter);
+  
+  // Group questions: non-dependencies first, then by type for dependencies
+  // Keep questions in main section if dependency is checked but no valid type selected yet
+  const nonDependencies = filteredData.filter(item => !item.dependency || (item.dependency && !QUESTION_TYPES.includes(item.type)));
+  const dependencies = filteredData.filter(item => item.dependency && QUESTION_TYPES.includes(item.type));
+  const groupedDependencies = QUESTION_TYPES.reduce((acc, type) => {
+    acc[type] = dependencies.filter(item => item.type === type);
+    return acc;
+  }, {});
+
+  const renderQuestion = (item, index, showNumber = true) => (
+    <div key={item.id} className={`p-3 rounded-lg border ${item.status === "Answered" ? "bg-slate-50 border-slate-100" : "bg-amber-50/30 border-amber-200/60"}`}>
+      <div className="flex gap-2 items-start">
+        {showNumber && <span className="text-xs text-slate-400 mt-2 font-mono w-5 shrink-0">{index + 1}</span>}
+        <div className="flex-1 space-y-2">
+          <textarea
+            ref={textareaRef}
+            className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-300 resize-none overflow-hidden"
+            style={{ minHeight: "36px" }}
+            placeholder="What do you need to find out?"
+            value={item.text}
+            onChange={(e) => {
+              updateItem(item.id, "text", e.target.value);
+              autoResize(e);
+            }}
+            onInput={autoResize}
+            rows={1}
+          />
+          <div className="flex gap-2 flex-wrap items-center">
+            <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={item.dependency || false}
+                onChange={(e) => updateItem(item.id, "dependency", e.target.checked)}
+                className="rounded border-slate-300 text-slate-600 focus:ring-slate-300"
+              />
+              Dependency
+            </label>
+            {item.dependency && (
+              <select
+                className="px-2 py-1 text-xs border border-slate-200 rounded bg-white"
+                value={QUESTION_TYPES.includes(item.type) ? item.type : ""}
+                onChange={(e) => updateItem(item.id, "type", e.target.value)}
+              >
+                {!QUESTION_TYPES.includes(item.type) && <option value="">Select type...</option>}
+                {QUESTION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            )}
+            <select
+              className="px-2 py-1 text-xs border border-slate-200 rounded bg-white"
+              value={item.status} onChange={(e) => updateItem(item.id, "status", e.target.value)}
+            >
+              {QUESTION_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={(item.tags || []).includes("B2B")}
+                onChange={(e) => {
+                  const tags = item.tags || [];
+                  updateItem(item.id, "tags", e.target.checked ? [...tags.filter(t => t !== "B2B"), "B2B"] : tags.filter(t => t !== "B2B"));
+                }}
+                className="rounded border-slate-300 text-slate-600 focus:ring-slate-300"
+              />
+              B2B
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={(item.tags || []).includes("B2C")}
+                onChange={(e) => {
+                  const tags = item.tags || [];
+                  updateItem(item.id, "tags", e.target.checked ? [...tags.filter(t => t !== "B2C"), "B2C"] : tags.filter(t => t !== "B2C"));
+                }}
+                className="rounded border-slate-300 text-slate-600 focus:ring-slate-300"
+              />
+              B2C
+            </label>
+          </div>
+          {item.status === "Answered" && (
+            <textarea
+              ref={textareaRef}
+              className="w-full px-2 py-1.5 text-sm border border-emerald-200 rounded bg-emerald-50 focus:outline-none focus:ring-1 focus:ring-emerald-300 resize-none overflow-hidden"
+              style={{ minHeight: "36px" }}
+              placeholder="Answer..."
+              value={item.answer}
+              onChange={(e) => {
+                updateItem(item.id, "answer", e.target.value);
+                autoResize(e);
+              }}
+              onInput={autoResize}
+              rows={1}
+            />
+          )}
+        </div>
+        <button onClick={() => removeItem(item.id)} className="text-slate-300 hover:text-red-400 text-lg mt-1 px-1">×</button>
+      </div>
+    </div>
+  );
+
   return (
     <div>
       <SectionHeader title="Open Questions" description="What you don't know. Surface these early — they're your blocker list." />
       {data.length > 0 && (
-        <p className="text-xs text-slate-500 mb-4">
-          {openCount} open · {data.length - openCount} answered
-        </p>
+        <div className="flex items-center justify-end mb-4">
+          <div className="flex gap-1">
+            <button
+              onClick={() => setStatusFilter("Open")}
+              className={`px-2 py-1 text-xs rounded ${
+                statusFilter === "Open" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              Open
+            </button>
+            <button
+              onClick={() => setStatusFilter("Answered")}
+              className={`px-2 py-1 text-xs rounded ${
+                statusFilter === "Answered" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              Answered
+            </button>
+          </div>
+        </div>
       )}
       {data.length === 0 && (
         <div className="text-center py-8 text-slate-400 text-sm border border-dashed border-slate-200 rounded-lg mb-4">
           No questions logged yet.
         </div>
       )}
-      <div className="space-y-3 mb-4">
-        {data.map((item, i) => (
-          <div key={item.id} className={`p-3 rounded-lg border ${item.status === "Answered" ? "bg-slate-50 border-slate-100" : "bg-amber-50/30 border-amber-200/60"}`}>
-            <div className="flex gap-2 items-start">
-              <span className="text-xs text-slate-400 mt-2 font-mono w-5 shrink-0">{i + 1}</span>
-              <div className="flex-1 space-y-2">
-                <input
-                  className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-300"
-                  placeholder="What do you need to find out?"
-                  value={item.text} onChange={(e) => updateItem(item.id, "text", e.target.value)}
-                />
-                <div className="flex gap-2 flex-wrap">
-                  <select
-                    className="px-2 py-1 text-xs border border-slate-200 rounded bg-white"
-                    value={item.type} onChange={(e) => updateItem(item.id, "type", e.target.value)}
-                  >
-                    {QUESTION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                  <select
-                    className="px-2 py-1 text-xs border border-slate-200 rounded bg-white"
-                    value={item.status} onChange={(e) => updateItem(item.id, "status", e.target.value)}
-                  >
-                    {QUESTION_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-                {item.status === "Answered" && (
-                  <input
-                    className="w-full px-2 py-1.5 text-sm border border-emerald-200 rounded bg-emerald-50 focus:outline-none focus:ring-1 focus:ring-emerald-300"
-                    placeholder="Answer..." value={item.answer}
-                    onChange={(e) => updateItem(item.id, "answer", e.target.value)}
-                  />
-                )}
-              </div>
-              <button onClick={() => removeItem(item.id)} className="text-slate-300 hover:text-red-400 text-lg mt-1 px-1">×</button>
-            </div>
+      <div className="space-y-4 mb-4">
+        {nonDependencies.length > 0 && (
+          <div className="space-y-3">
+            {nonDependencies.map((item, i) => renderQuestion(item, i))}
           </div>
-        ))}
+        )}
+        {QUESTION_TYPES.map(type => {
+          const items = groupedDependencies[type];
+          if (!items || items.length === 0) return null;
+          return (
+            <div key={type} className="space-y-3">
+              <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-wide mt-6">{type}</h3>
+              {items.map((item) => renderQuestion(item, 0, false))}
+            </div>
+          );
+        })}
       </div>
       <button onClick={addItem} className="text-sm text-slate-500 hover:text-slate-700 border border-dashed border-slate-300 rounded-lg px-4 py-2 hover:border-slate-400 transition-colors">
         + Add question
@@ -649,6 +958,13 @@ const QuestionsSection = ({ data, onChange }) => {
     </div>
   );
 };
+
+const NotesSection = ({ data, onChange }) => (
+  <div>
+    <SectionHeader title="Notes" description="Additional notes, observations, or reminders about this requirement." />
+    <Field label="Notes" multiline hint="Use this space for any additional information that doesn't fit elsewhere." rows={10} value={data} onChange={onChange} />
+  </div>
+);
 
 const SummarySection = ({ data, onChange }) => (
   <div>
@@ -667,7 +983,8 @@ export default function RequirementAnalyzer() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        return Array.isArray(parsed) && parsed.length > 0 ? parsed : [createBlankAnalysis("Sample: Dark Mode Toggle")];
+        const migrated = Array.isArray(parsed) ? parsed.map(migrateAnalysis) : [];
+        return migrated.length > 0 ? migrated : [createBlankAnalysis("Sample: Dark Mode Toggle")];
       } catch {
         return [createBlankAnalysis("Sample: Dark Mode Toggle")];
       }
@@ -675,10 +992,17 @@ export default function RequirementAnalyzer() {
     return [createBlankAnalysis("Sample: Dark Mode Toggle")];
   });
   const [activeId, setActiveId] = useState(() => analyses[0]?.id);
-  const [activeSection, setActiveSection] = useState("overview");
+  const [activeSection, setActiveSection] = useState(() => {
+    const saved = localStorage.getItem("activeSection");
+    return saved || "overview";
+  });
   const [showExport, setShowExport] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [phaseFilter, setPhaseFilter] = useState("All");
+  const [githubToken, setGithubToken] = useState(() => localStorage.getItem("githubToken") || "");
+  const [loadGistId, setLoadGistId] = useState("");
+  const [gistLoading, setGistLoading] = useState(false);
+  const [gistExpanded, setGistExpanded] = useState(false);
 
   // Load from URL share link on mount
   useEffect(() => {
@@ -687,8 +1011,9 @@ export default function RequirementAnalyzer() {
     if (sharedData) {
       try {
         const decoded = JSON.parse(atob(sharedData));
-        setAnalyses([decoded]);
-        setActiveId(decoded.id);
+        const migrated = migrateAnalysis(decoded);
+        setAnalyses([migrated]);
+        setActiveId(migrated.id);
         window.history.replaceState({}, document.title, window.location.pathname);
       } catch (err) {
         console.error("Failed to decode shared link:", err);
@@ -700,6 +1025,20 @@ export default function RequirementAnalyzer() {
   useEffect(() => {
     localStorage.setItem("requirementAnalyses", JSON.stringify(analyses));
   }, [analyses]);
+
+  // Save active section to localStorage
+  useEffect(() => {
+    localStorage.setItem("activeSection", activeSection);
+  }, [activeSection]);
+
+  // Save GitHub token to localStorage
+  useEffect(() => {
+    if (githubToken) {
+      localStorage.setItem("githubToken", githubToken);
+    } else {
+      localStorage.removeItem("githubToken");
+    }
+  }, [githubToken]);
 
   const active = useMemo(() => analyses.find((a) => a.id === activeId), [analyses, activeId]);
 
@@ -775,6 +1114,49 @@ export default function RequirementAnalyzer() {
     });
   };
 
+  const handleSaveToGist = async () => {
+    if (!active || !githubToken) {
+      alert("Please enter your GitHub token first.");
+      return;
+    }
+    
+    setGistLoading(true);
+    try {
+      const gist = await saveToGist(active, githubToken);
+      // Update analysis with gist ID
+      setAnalyses(prev => prev.map(a => 
+        a.id === activeId ? { ...a, gistId: gist.id } : a
+      ));
+      navigator.clipboard.writeText(gist.html_url);
+      alert(`Saved to GitHub Gist!\n\nGist URL copied to clipboard:\n${gist.html_url}\n\nGist ID (for loading): ${gist.id}`);
+    } catch (error) {
+      alert(`Failed to save to GitHub Gist:\n${error.message}\n\nMake sure your token has 'gist' scope.`);
+    } finally {
+      setGistLoading(false);
+    }
+  };
+
+  const handleLoadFromGist = async () => {
+    if (!loadGistId.trim()) {
+      alert("Please enter a Gist ID.");
+      return;
+    }
+    
+    setGistLoading(true);
+    try {
+      const data = await loadFromGist(loadGistId.trim(), githubToken);
+      const migrated = migrateAnalysis(data);
+      setAnalyses(prev => [...prev, migrated]);
+      setActiveId(migrated.id);
+      setLoadGistId("");
+      alert(`Loaded analysis: ${migrated.name}`);
+    } catch (error) {
+      alert(`Failed to load from GitHub Gist:\n${error.message}\n\nMake sure the Gist ID is correct and the gist is accessible.`);
+    } finally {
+      setGistLoading(false);
+    }
+  };
+
   if (!active) return null;
   const completion = getCompletion(active);
 
@@ -798,6 +1180,7 @@ export default function RequirementAnalyzer() {
       case "edges": return <EdgeCasesSection data={active.edges} onChange={(v) => updateActive("edges", v)} />;
       case "scope": return <ScopeSection data={active.scope} onChange={(v) => updateActive("scope", v)} />;
       case "questions": return <QuestionsSection data={active.questions} onChange={(v) => updateActive("questions", v)} />;
+      case "notes": return <NotesSection data={active.notes} onChange={(v) => updateActive("notes", v)} />;
       case "summary": return <SummarySection data={active.summary} onChange={(v) => updateActive("summary", v)} />;
       default: return null;
     }
@@ -887,12 +1270,76 @@ export default function RequirementAnalyzer() {
             )}
           </div>
           <div className="px-4 py-3 border-t border-slate-100 space-y-2">
-            <button onClick={handleExportMd} className="w-full py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg hover:border-slate-300 transition-colors">
-              Export as Markdown
+            {/* Collapsible GitHub Gist Section */}
+            {gistExpanded && (
+              <div className="space-y-2 mb-2">
+                {/* GitHub Token */}
+                <div>
+                  <label className="text-xs text-slate-500 mb-1 block">GitHub Token (for Gist sync)</label>
+                  <input
+                    type="password"
+                    placeholder="ghp_..."
+                    value={githubToken}
+                    onChange={(e) => setGithubToken(e.target.value)}
+                    className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-300"
+                  />
+                  <a
+                    href="https://github.com/settings/tokens/new?description=Requirement%20Analyzer&scopes=gist"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-500 hover:text-blue-600 mt-0.5 inline-block"
+                  >
+                    Create token →
+                  </a>
+                </div>
+                
+                {/* Save to Gist */}
+                <button
+                  onClick={handleSaveToGist}
+                  disabled={gistLoading || !githubToken}
+                  className="w-full py-1.5 text-xs text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {gistLoading ? "Saving..." : active?.gistId ? "Update Gist" : "Save to Gist"}
+                </button>
+                
+                {/* Load from Gist */}
+                <div className="flex gap-1">
+                  <input
+                    type="text"
+                    placeholder="Gist ID to load"
+                    value={loadGistId}
+                    onChange={(e) => setLoadGistId(e.target.value)}
+                    className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-300"
+                  />
+                  <button
+                    onClick={handleLoadFromGist}
+                    disabled={gistLoading || !loadGistId.trim()}
+                    className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800 border border-slate-200 rounded hover:border-slate-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Load
+                  </button>
+                </div>
+                
+                <div className="border-t border-slate-100 pt-2"></div>
+              </div>
+            )}
+            
+            {/* Toggle Button */}
+            <button
+              onClick={() => setGistExpanded(!gistExpanded)}
+              className="w-full py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg hover:border-slate-300 transition-colors flex items-center justify-center gap-1"
+            >
+              GitHub Gist Sync {gistExpanded ? "▼" : "▲"}
             </button>
-            <button onClick={handleExportJson} className="w-full py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg hover:border-slate-300 transition-colors">
-              Share Link
-            </button>
+            
+            <div className="space-y-2">
+              <button onClick={handleExportMd} className="w-full py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg hover:border-slate-300 transition-colors">
+                Export as Markdown
+              </button>
+              <button onClick={handleExportJson} className="w-full py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg hover:border-slate-300 transition-colors">
+                Share Link
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -923,17 +1370,31 @@ export default function RequirementAnalyzer() {
           </div>
           {/* Section nav */}
           <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
-            {SECTIONS.map((s) => (
-              <Pill
-                key={s.id}
-                active={activeSection === s.id}
-                onClick={() => setActiveSection(s.id)}
-                completion={getSectionCompletion(active, s.id)}
-              >
-                <span className="mr-1 opacity-60">{s.icon}</span>
-                {s.label}
-              </Pill>
-            ))}
+            {SECTIONS.map((s) => {
+              const getCountText = () => {
+                if (s.id === "assumptions") {
+                  const open = active.assumptions.filter(a => a.status === "Unvalidated" || a.status === "Needs Research").length;
+                  return `${open}`;
+                }
+                if (s.id === "questions") {
+                  const open = active.questions.filter(q => q.status === "Open").length;
+                  return `${open}`;
+                }
+                return undefined;
+              };
+              return (
+                <Pill
+                  key={s.id}
+                  active={activeSection === s.id}
+                  onClick={() => setActiveSection(s.id)}
+                  completion={s.id !== "assumptions" && s.id !== "questions" ? getSectionCompletion(active, s.id) : undefined}
+                  count={getCountText()}
+                >
+                  <span className="mr-1 opacity-60">{s.icon}</span>
+                  {s.label}
+                </Pill>
+              );
+            })}
           </div>
         </div>
 
