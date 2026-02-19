@@ -106,26 +106,55 @@ const decryptData = async (encryptedData) => {
     return decoder.decode(decrypted);
   } catch (error) {
     console.error("Decryption failed:", error);
-    // If decryption fails, might be old unencrypted data
-    return encryptedData;
+    // If decryption fails, might be old unencrypted data - try to validate it
+    try {
+      // Test if it's valid JSON
+      JSON.parse(encryptedData);
+      console.log("Data appears to be unencrypted JSON, using as-is");
+      return encryptedData;
+    } catch (parseError) {
+      console.error("Data is neither encrypted nor valid JSON", parseError);
+      return null;
+    }
   }
 };
 
 // Secure localStorage wrapper
 const secureStorage = {
   async setItem(key, value) {
-    const encrypted = await encryptData(value);
-    localStorage.setItem(key, encrypted);
+    try {
+      const encrypted = await encryptData(value);
+      localStorage.setItem(key, encrypted);
+      console.log('[SECURE STORAGE] Saved encrypted data for key:', key);
+    } catch (error) {
+      console.error('[SECURE STORAGE] Failed to save:', error);
+      throw error;
+    }
   },
   
   async getItem(key) {
-    const encrypted = localStorage.getItem(key);
-    if (!encrypted) return null;
-    return await decryptData(encrypted);
+    try {
+      const encrypted = localStorage.getItem(key);
+      if (!encrypted) {
+        console.log('[SECURE STORAGE] No data found for key:', key);
+        return null;
+      }
+      console.log('[SECURE STORAGE] Found data for key:', key);
+      const decrypted = await decryptData(encrypted);
+      if (!decrypted) {
+        console.error('[SECURE STORAGE] Decryption returned null');
+        return null;
+      }
+      return decrypted;
+    } catch (error) {
+      console.error('[SECURE STORAGE] Failed to get:', error);
+      return null;
+    }
   },
   
   removeItem(key) {
     localStorage.removeItem(key);
+    console.log('[SECURE STORAGE] Removed key:', key);
   }
 };
 
@@ -3014,30 +3043,41 @@ export default function RequirementAnalyzer() {
   // Load data on mount (encrypted if any analysis has secure mode)
   useEffect(() => {
     const loadData = async () => {
+      console.log('[LOAD] Starting data load...');
       try {
         let saved;
         // Try encrypted storage first
         saved = await secureStorage.getItem("requirementAnalyses");
+        console.log('[LOAD] Encrypted storage:', saved ? 'found' : 'not found');
         
         // If no encrypted data, try plain storage
         if (!saved) {
           saved = localStorage.getItem("requirementAnalyses");
+          console.log('[LOAD] Plain storage:', saved ? 'found' : 'not found');
         }
         
         if (saved) {
+          console.log('[LOAD] Parsing data...');
           const parsed = JSON.parse(saved);
+          console.log('[LOAD] Parsed analyses count:', Array.isArray(parsed) ? parsed.length : 0);
           const migrated = Array.isArray(parsed) ? parsed.map(migrateAnalysis) : [];
           if (migrated.length > 0) {
+            console.log('[LOAD] Setting analyses:', migrated.length, 'items');
             setAnalyses(migrated);
             if (!activeId || !migrated.find(a => a.id === activeId)) {
               setActiveId(migrated[0].id);
             }
+          } else {
+            console.log('[LOAD] No valid analyses found after migration');
           }
+        } else {
+          console.log('[LOAD] No saved data, using defaults');
         }
       } catch (error) {
-        console.error("Failed to load data:", error);
+        console.error("[LOAD] Failed to load data:", error);
         // Keep default data on error
       } finally {
+        console.log('[LOAD] Load complete, setting dataLoaded = true');
         setDataLoaded(true);
       }
     };
@@ -3078,11 +3118,20 @@ export default function RequirementAnalyzer() {
   useEffect(() => {
     const saveData = async () => {
       if (dataLoaded) {
-        if (hasSecureAnalysis) {
-          await secureStorage.setItem("requirementAnalyses", JSON.stringify(analyses));
-        } else {
-          localStorage.setItem("requirementAnalyses", JSON.stringify(analyses));
+        console.log('[SAVE] Saving', analyses.length, 'analyses... (secure:', hasSecureAnalysis, ')');
+        try {
+          if (hasSecureAnalysis) {
+            await secureStorage.setItem("requirementAnalyses", JSON.stringify(analyses));
+            console.log('[SAVE] Saved as encrypted');
+          } else {
+            localStorage.setItem("requirementAnalyses", JSON.stringify(analyses));
+            console.log('[SAVE] Saved as plain JSON');
+          }
+        } catch (error) {
+          console.error('[SAVE] Failed to save:', error);
         }
+      } else {
+        console.log('[SAVE] Skipping save (dataLoaded =', dataLoaded, ')');
       }
     };
     saveData();
