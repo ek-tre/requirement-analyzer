@@ -1,4 +1,133 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+/**
+ * WCAG 2.1 AA Accessibility Guidelines
+ * 
+ * This application follows WCAG 2.1 Level AA standards:
+ * 
+ * 1. Text Size: Minimum 14px (text-sm) for body text, with 16px preferred
+ * 2. Touch Targets: Interactive elements minimum 44x44px (py-2.5+ for buttons)
+ * 3. Color Contrast: 
+ *    - Normal text: 4.5:1 minimum (slate-600+ on white)
+ *    - Large text (18px+): 3:1 minimum (slate-500+ on white)
+ * 4. Focus Indicators: Visible focus rings (ring-2, ring-slate-400+)
+ * 5. Border Contrast: Borders minimum 3:1 against background (slate-300+ on white)
+ * 
+ * Color usage:
+ * - Use slate-600/700 for primary text (not slate-400/500 for body text)
+ * - Use border-slate-300+ for visible borders (not slate-100/200 for important dividers)
+ * - Links should have 4.5:1 contrast (blue-600+) and underline for identification
+ * 
+ * UI Guidelines:
+ * - Always use simple vector SVG icons (not emojis) for consistency across platforms
+ * - See AudioIcon, FolderIcon, TextIcon components as examples
+ */
+
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+
+// --- Encryption Utilities for Secure localStorage ---
+// Uses Web Crypto API to encrypt sensitive data at rest
+
+const ENCRYPTION_KEY_NAME = "req_analyzer_key_v1";
+const ENCRYPTION_SALT = "requirement-analyzer-secure-2026"; // In production, use unique per-installation salt
+
+// Generate or retrieve encryption key
+const getEncryptionKey = async () => {
+  // For automatic encryption, we derive a key from a constant
+  // For password-protected mode, replace this with PBKDF2 from user password
+  const encoder = new TextEncoder();
+  const keyMaterial = await window.crypto.subtle.importKey(
+    "raw",
+    encoder.encode(ENCRYPTION_SALT),
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits", "deriveKey"]
+  );
+  
+  return await window.crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: encoder.encode("secure-telco-mode"),
+      iterations: 100000,
+      hash: "SHA-256"
+    },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"]
+  );
+};
+
+// Encrypt data
+const encryptData = async (data) => {
+  try {
+    const key = await getEncryptionKey();
+    const encoder = new TextEncoder();
+    const iv = window.crypto.getRandomValues(new Uint8Array(12)); // 12 bytes for AES-GCM
+    
+    const encrypted = await window.crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      encoder.encode(data)
+    );
+    
+    // Combine IV and encrypted data
+    const combined = new Uint8Array(iv.length + encrypted.byteLength);
+    combined.set(iv);
+    combined.set(new Uint8Array(encrypted), iv.length);
+    
+    // Convert to base64 for localStorage
+    return btoa(String.fromCharCode(...combined));
+  } catch (error) {
+    console.error("Encryption failed:", error);
+    return data; // Fallback to unencrypted if encryption fails
+  }
+};
+
+// Decrypt data
+const decryptData = async (encryptedData) => {
+  try {
+    const key = await getEncryptionKey();
+    const decoder = new TextDecoder();
+    
+    // Decode from base64
+    const combined = new Uint8Array(
+      atob(encryptedData).split('').map(char => char.charCodeAt(0))
+    );
+    
+    // Extract IV and encrypted data
+    const iv = combined.slice(0, 12);
+    const encrypted = combined.slice(12);
+    
+    const decrypted = await window.crypto.subtle.decrypt(
+      { name: "AES-GCM", iv },
+      key,
+      encrypted
+    );
+    
+    return decoder.decode(decrypted);
+  } catch (error) {
+    console.error("Decryption failed:", error);
+    // If decryption fails, might be old unencrypted data
+    return encryptedData;
+  }
+};
+
+// Secure localStorage wrapper
+const secureStorage = {
+  async setItem(key, value) {
+    const encrypted = await encryptData(value);
+    localStorage.setItem(key, encrypted);
+  },
+  
+  async getItem(key) {
+    const encrypted = localStorage.getItem(key);
+    if (!encrypted) return null;
+    return await decryptData(encrypted);
+  },
+  
+  removeItem(key) {
+    localStorage.removeItem(key);
+  }
+};
 
 const generateId = () => Math.random().toString(36).slice(2, 10);
 
@@ -8,22 +137,31 @@ const SECTIONS = [
   { id: "context", label: "User Context", icon: "◈" },
   { id: "assumptions", label: "Assumptions", icon: "◇" },
   { id: "edges", label: "Edge Cases", icon: "◆" },
-  { id: "scope", label: "Dependencies & Scope", icon: "◫" },
+  { id: "scope", label: "Scope & Versions", icon: "◫" },
   { id: "questions", label: "Open Questions", icon: "◻" },
+  { id: "notes", label: "Notes", icon: "◐" },
   { id: "summary", label: "Summary", icon: "◼" },
+  { id: "mapping", label: "Mapping", icon: "◱" },
 ];
 
 const ORIGIN_OPTIONS = [
-  "User Research",
-  "Business Metric",
-  "Competitor Analysis",
-  "Stakeholder Request",
-  "Technical Debt",
-  "Other",
+  "User Research", "Business Metric", "Competitor Analysis",
+  "Stakeholder Request", "Technical Debt", "Legal", "Other",
 ];
 
+const VERSION_PHASES = ["MVP", "V1", "V2", "V3", "Future", "Cut"];
+const VERSION_COLORS = {
+  MVP: { bg: "bg-violet-100", text: "text-violet-700", border: "border-violet-200", dot: "bg-violet-500" },
+  V1: { bg: "bg-blue-100", text: "text-blue-700", border: "border-blue-200", dot: "bg-blue-500" },
+  V2: { bg: "bg-teal-100", text: "text-teal-700", border: "border-teal-200", dot: "bg-teal-500" },
+  V3: { bg: "bg-sky-100", text: "text-sky-700", border: "border-sky-200", dot: "bg-sky-500" },
+  Future: { bg: "bg-slate-100", text: "text-slate-600", border: "border-slate-200", dot: "bg-slate-400" },
+  Cut: { bg: "bg-red-50", text: "text-red-500", border: "border-red-200", dot: "bg-red-400" },
+};
+const PRIORITY_LEVELS = ["Must", "Should", "Could", "Won't"];
+
 const ASSUMPTION_STATUSES = ["Unvalidated", "Needs Research", "Validated", "Disproven"];
-const QUESTION_TYPES = ["Can Answer Now", "Needs Stakeholder Decision", "Needs User Research"];
+const QUESTION_TYPES = ["Stakeholder", "User Research", "Developer", "Designer", "Business Analyst"];
 const QUESTION_STATUSES = ["Open", "Answered"];
 const CONFIDENCE_LEVELS = ["Low", "Medium", "High"];
 
@@ -40,12 +178,16 @@ const EDGE_CASE_ITEMS = [
   { id: "accessibility", label: "Accessibility", hint: "Keyboard nav, screen readers, contrast?" },
 ];
 
-const createBlankAnalysis = (name = "Untitled Analysis") => ({
+const createBlankAnalysis = (name = "Untitled Design Task") => ({
   id: generateId(),
   name,
+  phase: "",
+  gistId: "",
+  jiraTicket: "",
+  secureMode: false,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
-  overview: { featureName: "", date: "", requestor: "", description: "", origin: "" },
+  overview: { featureName: "", date: "", requestor: "", description: "", origin: "", originOther: "" },
   problem: { problem: "", who: "", outcome: "", metrics: "", ifNotBuilt: "" },
   context: { segments: "", workflow: "", workarounds: "", triggers: "", beforeAfter: "" },
   assumptions: [],
@@ -53,43 +195,343 @@ const createBlankAnalysis = (name = "Untitled Analysis") => ({
     acc[item.id] = { considered: false, notes: "" };
     return acc;
   }, {}),
-  scope: { affected: "", newPatterns: "", technical: "", core: "", niceToHave: "", mvp: "" },
+  scope: {
+    affected: "",
+    newPatterns: "",
+    technical: "",
+    items: [],
+  },
   questions: [],
+  actions: [],
+  mapping: { figmaUrl: "https://embed.figma.com/board/JiPxw8hWqRLsTs2cpUFU7O/Figjam-Concept?node-id=378-61&embed-host=share" },
+  notes: "",
   summary: { confidence: "", concerns: "", nextSteps: "" },
 });
 
+// Migrate old analysis data to current structure
+const migrateAnalysis = (analysis) => {
+  const blank = createBlankAnalysis();
+  return {
+    ...blank,
+    ...analysis,
+    notes: analysis.notes ?? "",
+    gistId: analysis.gistId ?? "",
+    jiraTicket: analysis.jiraTicket ?? "",
+  };
+};
+
+// GitHub Gist API functions
+const saveToGist = async (analysis, token) => {
+  const headers = {
+    "Accept": "application/vnd.github+json",
+    "Authorization": `Bearer ${token}`,
+    "X-GitHub-Api-Version": "2022-11-28"
+  };
+  
+  const gistData = {
+    description: `Requirement Analysis: ${analysis.name}`,
+    public: false,
+    files: {
+      "analysis.json": {
+        content: JSON.stringify(analysis, null, 2)
+      }
+    }
+  };
+
+  try {
+    if (analysis.gistId) {
+      // Update existing gist
+      const response = await fetch(`https://api.github.com/gists/${analysis.gistId}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify(gistData)
+      });
+      if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
+      return await response.json();
+    } else {
+      // Create new gist
+      const response = await fetch("https://api.github.com/gists", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(gistData)
+      });
+      if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
+      return await response.json();
+    }
+  } catch (error) {
+    console.error("Failed to save gist:", error);
+    throw error;
+  }
+};
+
+const loadFromGist = async (gistId, token) => {
+  const headers = {
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28"
+  };
+  
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  try {
+    const response = await fetch(`https://api.github.com/gists/${gistId}`, { headers });
+    if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
+    const gist = await response.json();
+    const file = gist.files["analysis.json"];
+    if (!file) throw new Error("No analysis.json found in gist");
+    return JSON.parse(file.content);
+  } catch (error) {
+    console.error("Failed to load gist:", error);
+    throw error;
+  }
+};
+
+// Audio analysis functions
+let mediaRecorder = null;
+let audioChunks = [];
+let recognition = null;
+
+const startAudioRecording = async (onTranscript) => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+    audioChunks = [];
+
+    mediaRecorder.ondataavailable = (event) => {
+      audioChunks.push(event.data);
+    };
+
+    // Initialize Web Speech API
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript + ' ';
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+        
+        onTranscript(finalTranscript, interimTranscript);
+      };
+
+      recognition.start();
+    }
+
+    mediaRecorder.start();
+    return true;
+  } catch (error) {
+    console.error("Error starting recording:", error);
+    return false;
+  }
+};
+
+const stopAudioRecording = () => {
+  return new Promise((resolve) => {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        resolve(audioBlob);
+      };
+      mediaRecorder.stop();
+    } else {
+      resolve(null);
+    }
+
+    if (recognition) {
+      recognition.stop();
+      recognition = null;
+    }
+  });
+};
+
+const analyzeWithGitHub = async (transcript, githubAIKey) => {
+  if (!githubAIKey) return null;
+  
+  try {
+    const response = await fetch('https://models.inference.ai.azure.com/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${githubAIKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [{
+          role: 'system',
+          content: 'You are a UX/product design assistant. Analyze the transcript and extract information into these sections: problem (what problem and why it matters), context (user context and personas), assumptions (unvalidated assumptions), edges (edge cases), scope (in/out of scope), questions (open questions), actions (action items), notes (additional notes). Return as compact JSON with section keys and string values. Be concise.'
+        }, {
+          role: 'user',
+          content: transcript
+        }],
+        temperature: 0.7,
+        max_tokens: 1500
+      })
+    });
+
+    if (!response.ok) throw new Error('GitHub API error');
+    const data = await response.json();
+    const content = data.choices[0].message.content;
+    
+    // Try to parse as JSON, fallback to text
+    try {
+      return JSON.parse(content);
+    } catch {
+      return { notes: content };
+    }
+  } catch (error) {
+    console.error('Failed to analyze with GitHub:', error);
+    return null;
+  }
+};
+
+const analyzePastedText = async (text, githubAIKey) => {
+  if (!githubAIKey) {
+    // Fallback without AI: add to notes as bullet points
+    return {
+      notes: text.split('\n').filter(line => line.trim()).map(line => `• ${line.trim()}`).join('\n'),
+      _fallback: true,
+      _reason: 'No GitHub token provided'
+    };
+  }
+  
+  try {
+    const response = await fetch('https://models.inference.ai.azure.com/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${githubAIKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [{
+          role: 'system',
+          content: 'You are analyzing pasted text (like Jira tickets, requirements docs, emails, etc). Extract structured information and return ONLY a valid JSON object (no markdown, no code blocks, no explanation). Use these fields (omit if not found): featureName (short title), date (any date mentioned), requestor (who requested/stakeholders), origin (one of: User Research, Business Metric, Competitor Analysis, Stakeholder Request, Technical Debt, Legal, Other), description (brief summary), problem (problem statement), who (target users), outcome (business outcome), segments (user segments), workflow (current workflow), assumptions (array of strings), questions (array of strings), actions (array of strings), notes (array of additional points). Return raw JSON only.'
+        }, {
+          role: 'user',
+          content: text
+        }],
+        temperature: 0.5,
+        max_tokens: 2000
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`GitHub API returned ${response.status}: ${errorText}`);
+    }
+    const data = await response.json();
+    let content = data.choices[0].message.content;
+    
+    // Strip markdown code blocks if present (try multiple patterns)
+    content = content.trim();
+    
+    // Remove ```json ... ``` blocks
+    if (content.startsWith('```')) {
+      const match = content.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+      if (match) {
+        content = match[1].trim();
+      }
+    }
+    
+    // Remove any remaining backticks
+    content = content.replace(/^`+|`+$/g, '').trim();
+    
+    try {
+      const parsed = JSON.parse(content);
+      console.log('Successfully parsed AI response:', parsed);
+      return parsed;
+    } catch (parseError) {
+      console.error('Failed to parse JSON:', parseError, 'Content:', content);
+      return { 
+        notes: 'Failed to parse AI response. Raw content:\n\n' + content,
+        _fallback: true,
+        _reason: 'JSON parsing failed: ' + parseError.message
+      };
+    }
+  } catch (error) {
+    console.error('Failed to analyze pasted text:', error);
+    // Fallback: add to notes
+    return {
+      notes: text.split('\n').filter(line => line.trim()).map(line => `• ${line.trim()}`).join('\n'),
+      _fallback: true,
+      _reason: error.message || 'API request failed'
+    };
+  }
+};
+
 function getCompletion(analysis) {
   let filled = 0, total = 0;
-  const check = (val) => { total++; if (val && val.trim()) filled++; };
+  const check = (val) => { total++; if (val && String(val).trim()) filled++; };
   Object.values(analysis.overview).forEach(check);
+  check(analysis.phase);
   Object.values(analysis.problem).forEach(check);
   Object.values(analysis.context).forEach(check);
-  if (analysis.assumptions.length > 0) filled++;
-  total++;
-  const edgeCount = Object.values(analysis.edges).filter((e) => e.considered).length;
-  if (edgeCount > 0) filled++;
-  total++;
-  Object.values(analysis.scope).forEach(check);
-  if (analysis.questions.length > 0) filled++;
-  total++;
+  total++; if (analysis.assumptions.length > 0) filled++;
+  total++; if (Object.values(analysis.edges).filter((e) => e.considered).length > 0) filled++;
+  check(analysis.scope.affected); check(analysis.scope.newPatterns); check(analysis.scope.technical);
+  total++; if (analysis.scope.items.length > 0) filled++;
+  total++; if (analysis.questions.length > 0) filled++;
+  total++; if ((analysis.actions || []).length > 0) filled++;
   Object.values(analysis.summary).forEach(check);
   return total > 0 ? Math.round((filled / total) * 100) : 0;
 }
 
+function getTaskCount(analysis) {
+  let filled = 0, total = 0;
+  const check = (val) => { total++; if (val && String(val).trim()) filled++; };
+  Object.values(analysis.overview).forEach(check);
+  check(analysis.phase);
+  Object.values(analysis.problem).forEach(check);
+  Object.values(analysis.context).forEach(check);
+  total++; if (analysis.assumptions.length > 0) filled++;
+  total++; if (Object.values(analysis.edges).filter((e) => e.considered).length > 0) filled++;
+  check(analysis.scope.affected); check(analysis.scope.newPatterns); check(analysis.scope.technical);
+  total++; if (analysis.scope.items.length > 0) filled++;
+  total++; if (analysis.questions.length > 0) filled++;
+  total++; if ((analysis.actions || []).length > 0) filled++;
+  Object.values(analysis.summary).forEach(check);
+  return { filled, total };
+}
+
 function getSectionCompletion(analysis, sectionId) {
   let filled = 0, total = 0;
-  const check = (val) => { total++; if (val && val.trim()) filled++; };
+  const check = (val) => { total++; if (val && String(val).trim()) filled++; };
   switch (sectionId) {
-    case "overview": Object.values(analysis.overview).forEach(check); break;
+    case "overview":
+      Object.values(analysis.overview).forEach(check);
+      check(analysis.phase);
+      break;
     case "problem": Object.values(analysis.problem).forEach(check); break;
     case "context": Object.values(analysis.context).forEach(check); break;
-    case "assumptions": return { isCount: true, value: analysis.assumptions.length };
+    case "assumptions": total = 1; if (analysis.assumptions.length > 0) filled = 1; break;
     case "edges":
       total = EDGE_CASE_ITEMS.length;
       filled = Object.values(analysis.edges).filter((e) => e.considered).length;
       break;
-    case "scope": Object.values(analysis.scope).forEach(check); break;
-    case "questions": return { isCount: true, value: analysis.questions.length };
+    case "scope":
+      check(analysis.scope.affected); check(analysis.scope.newPatterns); check(analysis.scope.technical);
+      total++; if (analysis.scope.items.length > 0) filled++;
+      break;
+    case "questions": total = 1; if (analysis.questions.length > 0) filled = 1; break;
+    case "actions": total = 1; if ((analysis.actions || []).length > 0) filled = 1; break;
+    case "mapping": 
+      total = 1; 
+      if (analysis.mapping?.figmaUrl?.trim()) filled = 1; 
+      break;
+    case "notes": check(analysis.notes); break;
     case "summary": Object.values(analysis.summary).forEach(check); break;
   }
   return total > 0 ? Math.round((filled / total) * 100) : 0;
@@ -99,129 +541,431 @@ function exportToMarkdown(a) {
   const lines = [];
   const h = (t) => lines.push(`\n## ${t}`);
   const f = (label, val) => { if (val?.trim()) lines.push(`**${label}:** ${val}`); };
-  lines.push(`# ${a.name || "Untitled Analysis"}`);
+  lines.push(`# ${a.name || "Untitled Design Task"}`);
   lines.push(`*Created: ${new Date(a.createdAt).toLocaleDateString()}*`);
+  if (a.phase) lines.push(`*Target Phase: ${a.phase}*`);
+  if (a.jiraTicket) lines.push(`*JIRA Ticket: ${a.jiraTicket}*`);
+
   h("Overview");
   f("Feature", a.overview.featureName); f("Date", a.overview.date);
-  f("Requestor", a.overview.requestor); f("Origin", a.overview.origin);
+  f("Stakeholders", a.overview.requestor); 
+  f("Origin", a.overview.origin === "Other" && a.overview.originOther ? `Other: ${a.overview.originOther}` : a.overview.origin);
   if (a.overview.description) lines.push(`\n${a.overview.description}`);
+
   h("Problem & Purpose");
   f("Problem", a.problem.problem); f("Who", a.problem.who);
   f("Business Outcome", a.problem.outcome); f("Success Metrics", a.problem.metrics);
   f("If Not Built", a.problem.ifNotBuilt);
+
   h("User Context");
   f("Target Segments", a.context.segments); f("Current Workflow", a.context.workflow);
   f("Workarounds", a.context.workarounds); f("Triggers", a.context.triggers);
   f("Before/After", a.context.beforeAfter);
+
   h("Assumptions");
   if (a.assumptions.length === 0) lines.push("*No assumptions logged yet.*");
   a.assumptions.forEach((item, i) => lines.push(`${i + 1}. [${item.status}] ${item.text}`));
+
   h("Edge Cases");
   EDGE_CASE_ITEMS.forEach((ec) => {
     const d = a.edges[ec.id];
     if (d?.considered) lines.push(`- [x] **${ec.label}**${d.notes ? `: ${d.notes}` : ""}`);
     else lines.push(`- [ ] ${ec.label}`);
   });
-  h("Dependencies & Scope");
+
+  h("Scope & Versions");
   f("Affected Features", a.scope.affected); f("New Patterns Needed", a.scope.newPatterns);
-  f("Technical Constraints", a.scope.technical); f("Core (Must-Have)", a.scope.core);
-  f("Nice-to-Have", a.scope.niceToHave); f("MVP Definition", a.scope.mvp);
+  f("Technical Constraints", a.scope.technical);
+  if (a.scope.items.length > 0) {
+    lines.push("\n### Scope Items by Version");
+    const byVersion = {};
+    a.scope.items.forEach((item) => {
+      const v = item.version || "Unassigned";
+      if (!byVersion[v]) byVersion[v] = [];
+      byVersion[v].push(item);
+    });
+    Object.entries(byVersion).forEach(([version, items]) => {
+      lines.push(`\n**${version}**`);
+      items.forEach((item) => {
+        const priority = item.priority ? ` [${item.priority}]` : "";
+        lines.push(`- ${item.item}${priority}${item.description ? ` — ${item.description}` : ""}`);
+      });
+    });
+  }
+
   h("Open Questions");
   if (a.questions.length === 0) lines.push("*No questions logged yet.*");
   a.questions.forEach((q, i) => {
-    const status = q.status === "Answered" ? "✓" : "?";
+    const status = q.status === "Answered" ? "Y" : "?";
     lines.push(`${i + 1}. [${status}] (${q.type}) ${q.text}`);
-    if (q.answer?.trim()) lines.push(`   → ${q.answer}`);
+    if (q.answer?.trim()) lines.push(`   - ${q.answer}`);
   });
+
+  h("Actions");
+  if ((a.actions || []).length === 0) lines.push("*No actions logged yet.*");
+  (a.actions || []).forEach((item, i) => lines.push(`${i + 1}. [${item.completed ? "X" : " "}] ${item.text}`));
+
+  h("Mapping");
+  if (a.mapping?.figmaUrl) {
+    lines.push(`Figma Embed: ${a.mapping.figmaUrl}`);
+  } else {
+    lines.push("*No mapping URL set.*");
+  }
+
+  h("Notes");
+  if (a.notes?.trim()) lines.push(a.notes);
+  else lines.push("*No notes.*");
+
   h("Summary");
   f("Confidence", a.summary.confidence); f("Key Concerns", a.summary.concerns);
   f("Next Steps", a.summary.nextSteps);
   return lines.join("\n");
 }
 
+// Import from Markdown
+function importFromMarkdown(markdown) {
+  const lines = markdown.split("\n");
+  const analysis = createBlankAnalysis();
+  
+  let currentSection = "";
+  let buffer = [];
+  
+  const parseField = (line) => {
+    const match = line.match(/\*\*([^:]+):\*\*\s*(.+)/);
+    return match ? { label: match[1].trim(), value: match[2].trim() } : null;
+  };
+  
+  const processSection = () => {
+    const content = buffer.join("\n").trim();
+    
+    switch(currentSection) {
+      case "Overview":
+        buffer.forEach(line => {
+          const field = parseField(line);
+          if (!field) {
+            if (line && !line.startsWith("**") && analysis.overview.description === "") {
+              analysis.overview.description = content.split("\n").filter(l => !l.startsWith("**")).join("\n").trim();
+            }
+            return;
+          }
+          if (field.label === "Feature") analysis.overview.featureName = field.value;
+          if (field.label === "Date") analysis.overview.date = field.value;
+          if (field.label === "Stakeholders") analysis.overview.requestor = field.value;
+          if (field.label === "Origin") {
+            // Check if it's "Other: something"
+            if (field.value.startsWith("Other: ")) {
+              analysis.overview.origin = "Other";
+              analysis.overview.originOther = field.value.substring(7);
+            } else {
+              analysis.overview.origin = field.value;
+            }
+          }
+        });
+        break;
+        
+      case "Problem & Purpose":
+        buffer.forEach(line => {
+          const field = parseField(line);
+          if (!field) return;
+          if (field.label === "Problem") analysis.problem.problem = field.value;
+          if (field.label === "Who") analysis.problem.who = field.value;
+          if (field.label === "Business Outcome") analysis.problem.outcome = field.value;
+          if (field.label === "Success Metrics") analysis.problem.metrics = field.value;
+          if (field.label === "If Not Built") analysis.problem.ifNotBuilt = field.value;
+        });
+        break;
+        
+      case "User Context":
+        buffer.forEach(line => {
+          const field = parseField(line);
+          if (!field) return;
+          if (field.label === "Target Segments") analysis.context.segments = field.value;
+          if (field.label === "Current Workflow") analysis.context.workflow = field.value;
+          if (field.label === "Workarounds") analysis.context.workarounds = field.value;
+          if (field.label === "Triggers") analysis.context.triggers = field.value;
+          if (field.label === "Before/After") analysis.context.beforeAfter = field.value;
+        });
+        break;
+        
+      case "Assumptions":
+        buffer.forEach(line => {
+          const match = line.match(/^\d+\.\s*\[([^\]]+)\]\s*(.+)/);
+          if (match) {
+            analysis.assumptions.push({
+              id: generateId(),
+              text: match[2].trim(),
+              status: match[1].trim()
+            });
+          }
+        });
+        break;
+        
+      case "Actions":
+        buffer.forEach(line => {
+          const match = line.match(/^\d+\.\s*\[([^\]]+)\]\s*(.+)/);
+          if (match) {
+            analysis.actions.push({
+              id: generateId(),
+              text: match[2].trim(),
+              completed: match[1].trim() === "X",
+              note: ""
+            });
+          }
+        });
+        break;
+        
+      case "Open Questions":
+        buffer.forEach(line => {
+          const match = line.match(/^\d+\.\s*\[([^\]]+)\]\s*\(([^)]+)\)\s*(.+)/);
+          if (match) {
+            analysis.questions.push({
+              id: generateId(),
+              text: match[3].trim(),
+              type: match[2].trim(),
+              status: match[1].trim() === "Y" ? "Answered" : "Open",
+              answer: ""
+            });
+          }
+        });
+        break;
+        
+      case "Mapping":
+        const figmaMatch = content.match(/Figma Embed:\s*(.+)/);
+        if (figmaMatch) {
+          analysis.mapping = { figmaUrl: figmaMatch[1].trim() };
+        }
+        break;
+        
+      case "Notes":
+        if (content && !content.includes("*No notes.*")) {
+          analysis.notes = content;
+        }
+        break;
+        
+      case "Summary":
+        buffer.forEach(line => {
+          const field = parseField(line);
+          if (!field) return;
+          if (field.label === "Confidence") analysis.summary.confidence = field.value;
+          if (field.label === "Key Concerns") analysis.summary.concerns = field.value;
+          if (field.label === "Next Steps") analysis.summary.nextSteps = field.value;
+        });
+        break;
+    }
+    
+    buffer = [];
+  };
+  
+  lines.forEach((line, index) => {
+    // Extract title from first line
+    if (index === 0 && line.startsWith("# ")) {
+      analysis.name = line.substring(2).trim();
+      return;
+    }
+    
+    // Extract phase
+    if (line.startsWith("*Target Phase:")) {
+      const match = line.match(/\*Target Phase:\s*([^*]+)\*/);
+      if (match) analysis.phase = match[1].trim();
+      return;
+    }
+    
+    // Extract JIRA ticket
+    if (line.startsWith("*JIRA Ticket:")) {
+      const match = line.match(/\*JIRA Ticket:\s*([^*]+)\*/);
+      if (match) analysis.jiraTicket = match[1].trim();
+      return;
+    }
+    
+    // Section headers
+    if (line.startsWith("## ")) {
+      if (currentSection) processSection();
+      currentSection = line.substring(3).trim();
+      return;
+    }
+    
+    // Skip empty lines at start of section
+    if (!buffer.length && !line.trim()) return;
+    
+    // Add to buffer
+    if (line.trim()) {
+      buffer.push(line);
+    }
+  });
+  
+  // Process final section
+  if (currentSection) processSection();
+  
+  return analysis;
+}
+
 // --- UI Components ---
 
-const Field = ({ label, hint, value, onChange, multiline = false, rows = 3 }) => (
+const Field = ({ label, hint, placeholder, value, onChange, multiline = false, rows = 3 }) => (
   <div className="mb-4">
-    <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
-    {hint && <p className="text-xs text-slate-400 mb-1.5">{hint}</p>}
+    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{label}</label>
+    {hint && <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5">{hint}</p>}
     {multiline ? (
       <textarea
-        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-slate-400 resize-y bg-white"
+        className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-500 focus:border-slate-400 dark:focus:border-slate-500 resize-y bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
         rows={rows} value={value || ""} onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
       />
     ) : (
       <input
         type="text"
-        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-slate-400 bg-white"
+        className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-500 focus:border-slate-400 dark:focus:border-slate-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
         value={value || ""} onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
       />
     )}
   </div>
 );
 
-const Select = ({ label, hint, value, options, onChange }) => (
+const Select = ({ label, hint, value, options, onChange, allowEmpty = true }) => (
   <div className="mb-4">
-    <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
-    {hint && <p className="text-xs text-slate-400 mb-1.5">{hint}</p>}
+    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{label}</label>
+    {hint && <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5">{hint}</p>}
     <select
-      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-slate-400 bg-white"
+      className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-500 focus:border-slate-400 dark:focus:border-slate-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
       value={value || ""} onChange={(e) => onChange(e.target.value)}
     >
-      <option value="">Select...</option>
+      {allowEmpty && <option value="">Select...</option>}
       {options.map((o) => <option key={o} value={o}>{o}</option>)}
     </select>
   </div>
 );
 
-const Pill = ({ active, onClick, children, completion }) => {
-  const isCount = typeof completion === 'object' && completion.isCount;
-  const value = isCount ? completion.value : completion;
-  const displayValue = isCount ? value : `${value}%`;
-  const showBadge = isCount ? value > 0 : value > 0;
-  
+const VersionBadge = ({ version, size = "sm" }) => {
+  if (!version) return null;
+  const colors = VERSION_COLORS[version] || VERSION_COLORS.Future;
+  const sizeClass = size === "xs" ? "text-xs px-1.5 py-0" : "text-xs px-2 py-0.5";
   return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-all whitespace-nowrap ${
-        active
-          ? "bg-slate-800 text-white font-medium"
-          : "text-slate-600 hover:bg-slate-100"
-      }`}
-    >
-      <span>{children}</span>
-      {showBadge && (
-        <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-          active ? "bg-slate-600 text-slate-200" : (!isCount && value === 100) ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
-        }`}>
-          {displayValue}
-        </span>
-      )}
-    </button>
+    <span className={`${sizeClass} rounded-full font-medium ${colors.bg} ${colors.text} ${colors.border} border`}>
+      {version}
+    </span>
   );
 };
 
+const Pill = ({ active, onClick, children, completion, count }) => (
+  <button
+    onClick={onClick}
+    className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-all whitespace-nowrap ${
+      active ? "bg-slate-800 dark:bg-slate-600 text-white font-medium" : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+    }`}
+  >
+    <span>{children}</span>
+    {count !== undefined && count > 0 && (
+      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+        active ? "bg-slate-600 dark:bg-slate-700 text-slate-200" : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
+      }`}>
+        {count}
+      </span>
+    )}
+  </button>
+);
+
 const SectionHeader = ({ title, description }) => (
-  <div className="mb-6 pb-4 border-b border-slate-100">
-    <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
-    {description && <p className="text-sm text-slate-500 mt-1">{description}</p>}
+  <div className="mb-6 pb-4 border-b border-slate-100 dark:border-slate-700">
+    <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">{title}</h2>
+    {description && <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{description}</p>}
   </div>
 );
 
 // --- Section Components ---
 
-const OverviewSection = ({ data, onChange }) => (
+const OverviewSection = ({ data, phase, jiraTicket, secureMode, audioModalOpen, pasteModalOpen, onChange, onPhaseChange, onJiraTicketChange, onSecureModeChange, onOpenAudioModal, onOpenPasteModal }) => (
   <div>
     <SectionHeader title="Overview" description="Basic information about the feature requirement." />
+    <Field label="JIRA Ticket" value={jiraTicket} onChange={onJiraTicketChange} placeholder="e.g., PROJ-123" />
     <div className="grid grid-cols-2 gap-4">
       <Field label="Feature Name" value={data.featureName} onChange={(v) => onChange({ ...data, featureName: v })} />
       <Field label="Date" value={data.date} onChange={(v) => onChange({ ...data, date: v })} />
     </div>
     <div className="grid grid-cols-2 gap-4">
-      <Field label="Requestor / Source" value={data.requestor} onChange={(v) => onChange({ ...data, requestor: v })} />
+      <Field label="Stakeholders / Source" value={data.requestor} onChange={(v) => onChange({ ...data, requestor: v })} />
       <Select label="Requirement Origin" value={data.origin} options={ORIGIN_OPTIONS} onChange={(v) => onChange({ ...data, origin: v })} />
     </div>
+    {data.origin === "Other" && (
+      <Field label="Specify Other Origin" value={data.originOther} onChange={(v) => onChange({ ...data, originOther: v })} />
+    )}
+    <div className="mb-4">
+      <label className="block text-sm font-medium text-slate-700 mb-1">Target Version</label>
+      <p className="text-xs text-slate-400 mb-2">Which release phase is this analysis targeting?</p>
+      <div className="flex gap-2 flex-wrap">
+        {VERSION_PHASES.filter((v) => v !== "Cut").map((v) => {
+          const colors = VERSION_COLORS[v];
+          const isActive = phase === v;
+          return (
+            <button
+              key={v}
+              onClick={() => onPhaseChange(isActive ? "" : v)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
+                isActive
+                  ? `${colors.bg} ${colors.text} ${colors.border} ring-2 ring-offset-1 ring-slate-300`
+                  : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
+              }`}
+            >
+              {v}
+            </button>
+          );
+        })}
+      </div>
+    </div>
     <Field label="Brief Description" hint="What is this feature in one or two sentences?" multiline value={data.description} onChange={(v) => onChange({ ...data, description: v })} />
+    
+    {/* Secure Mode & AI Features */}
+    <div className="mt-6 p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Secure Mode</label>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Enable encryption and disable external services for sensitive data</p>
+        </div>
+        <button
+          onClick={() => onSecureModeChange(!secureMode)}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
+            secureMode
+              ? "bg-emerald-600 dark:bg-emerald-700 text-white hover:bg-emerald-700 dark:hover:bg-emerald-600"
+              : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600"
+          }`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+          </svg>
+          {secureMode ? "ON" : "OFF"}
+        </button>
+      </div>
+      
+      {/* AI Analysis Buttons - Only visible when secure mode is OFF */}
+      {!secureMode && (
+        <div className="flex gap-2 pt-3 border-t border-slate-200 dark:border-slate-700">
+          <button
+            onClick={onOpenAudioModal}
+            className="flex-1 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white border border-slate-300 dark:border-slate-600 rounded-lg hover:border-slate-400 dark:hover:border-slate-500 transition-colors flex items-center justify-center gap-2 font-medium"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+            </svg>
+            Audio Analysis
+          </button>
+          <button
+            onClick={onOpenPasteModal}
+            className="flex-1 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white border border-slate-300 dark:border-slate-600 rounded-lg hover:border-slate-400 dark:hover:border-slate-500 transition-colors flex items-center justify-center gap-2 font-medium"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Text Analysis
+          </button>
+        </div>
+      )}
+      
+      {secureMode && (
+        <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium pt-3 border-t border-slate-200 dark:border-slate-700">
+          ✓ Data encrypted • External services disabled • GitHub sync hidden
+        </p>
+      )}
+    </div>
   </div>
 );
 
@@ -248,41 +992,115 @@ const UserContextSection = ({ data, onChange }) => (
 );
 
 const AssumptionsSection = ({ data, onChange }) => {
-  const addItem = () => onChange([...data, { id: generateId(), text: "", status: "Unvalidated" }]);
+  const [statusFilter, setStatusFilter] = useState("Open");
+  const addItem = () => onChange([...data, { id: generateId(), text: "", status: "Unvalidated", tags: [] }]);
   const updateItem = (id, field, val) =>
     onChange(data.map((item) => (item.id === id ? { ...item, [field]: val } : item)));
   const removeItem = (id) => onChange(data.filter((item) => item.id !== id));
 
+  const autoResize = (e) => {
+    e.target.style.height = "auto";
+    e.target.style.height = e.target.scrollHeight + "px";
+  };
+
+  const textareaRef = (el) => {
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = el.scrollHeight + "px";
+    }
+  };
+
+  // Filter by status: Open = Unvalidated/Needs Research, Answered = Validated/Disproven
+  const filteredData = statusFilter === "Open" 
+    ? data.filter(item => item.status === "Unvalidated" || item.status === "Needs Research")
+    : data.filter(item => item.status === "Validated" || item.status === "Disproven");
+
   return (
     <div>
       <SectionHeader title="Assumptions" description="Every requirement carries hidden assumptions. Name them so you can validate or flag them." />
+      {data.length > 0 && (
+        <div className="flex items-center justify-end mb-4">
+          <div className="flex gap-1">
+            <button
+              onClick={() => setStatusFilter("Open")}
+              className={`px-2 py-1 text-xs rounded ${
+                statusFilter === "Open" ? "bg-slate-800 dark:bg-slate-600 text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600"
+              }`}
+            >
+              Open
+            </button>
+            <button
+              onClick={() => setStatusFilter("Answered")}
+              className={`px-2 py-1 text-xs rounded ${
+                statusFilter === "Answered" ? "bg-slate-800 dark:bg-slate-600 text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600"
+              }`}
+            >
+              Answered
+            </button>
+          </div>
+        </div>
+      )}
       {data.length === 0 && (
-        <div className="text-center py-8 text-slate-400 text-sm border border-dashed border-slate-200 rounded-lg mb-4">
+        <div className="text-center py-8 text-slate-400 dark:text-slate-500 text-sm border border-dashed border-slate-200 dark:border-slate-600 rounded-lg mb-4">
           No assumptions logged yet. Start adding them below.
         </div>
       )}
       <div className="space-y-3 mb-4">
-        {data.map((item, i) => (
+        {filteredData.map((item, i) => (
           <div key={item.id} className="flex gap-2 items-start p-3 bg-slate-50 rounded-lg border border-slate-100">
             <span className="text-xs text-slate-400 mt-2.5 font-mono w-5 shrink-0">{i + 1}</span>
             <div className="flex-1 space-y-2">
-              <input
-                className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-300"
+              <textarea
+                ref={textareaRef}
+                className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-300 resize-none overflow-hidden"
+                style={{ minHeight: "36px" }}
                 placeholder="Describe the assumption..."
-                value={item.text} onChange={(e) => updateItem(item.id, "text", e.target.value)}
+                value={item.text}
+                onChange={(e) => {
+                  updateItem(item.id, "text", e.target.value);
+                  autoResize(e);
+                }}
+                onInput={autoResize}
+                rows={1}
               />
-              <select
-                className="px-2 py-1 text-xs border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-300"
-                value={item.status} onChange={(e) => updateItem(item.id, "status", e.target.value)}
-              >
-                {ASSUMPTION_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
+              <div className="flex gap-2 flex-wrap items-center">
+                <select
+                  className="px-2 py-1 text-xs border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-300"
+                  value={item.status} onChange={(e) => updateItem(item.id, "status", e.target.value)}
+                >
+                  {ASSUMPTION_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={(item.tags || []).includes("B2B")}
+                    onChange={(e) => {
+                      const tags = item.tags || [];
+                      updateItem(item.id, "tags", e.target.checked ? [...tags.filter(t => t !== "B2B"), "B2B"] : tags.filter(t => t !== "B2B"));
+                    }}
+                    className="rounded border-slate-300 text-slate-600 focus:ring-slate-300"
+                  />
+                  B2B
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={(item.tags || []).includes("B2C")}
+                    onChange={(e) => {
+                      const tags = item.tags || [];
+                      updateItem(item.id, "tags", e.target.checked ? [...tags.filter(t => t !== "B2C"), "B2C"] : tags.filter(t => t !== "B2C"));
+                    }}
+                    className="rounded border-slate-300 text-slate-600 focus:ring-slate-300"
+                  />
+                  B2C
+                </label>
+              </div>
             </div>
-            <button onClick={() => removeItem(item.id)} className="text-slate-300 hover:text-red-400 text-lg mt-1.5 px-1">×</button>
+            <button onClick={() => removeItem(item.id)} className="text-slate-300 dark:text-slate-600 hover:text-red-400 dark:hover:text-red-500 text-lg mt-1.5 px-1">×</button>
           </div>
         ))}
       </div>
-      <button onClick={addItem} className="text-sm text-slate-500 hover:text-slate-700 border border-dashed border-slate-300 rounded-lg px-4 py-2 hover:border-slate-400 transition-colors">
+      <button onClick={addItem} className="text-sm text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white border border-dashed border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 hover:border-slate-400 dark:hover:border-slate-500 transition-colors">
         + Add assumption
       </button>
     </div>
@@ -307,7 +1125,11 @@ const EdgeCasesSection = ({ data, onChange }) => {
                 <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
                   d.considered ? "border-emerald-500 bg-emerald-500" : "border-slate-300"
                 }`}>
-                  {d.considered && <span className="text-white text-xs">✓</span>}
+                  {d.considered && (
+                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
                 </div>
                 <div className="flex-1">
                   <span className="text-sm font-medium text-slate-700">{ec.label}</span>
@@ -332,86 +1154,559 @@ const EdgeCasesSection = ({ data, onChange }) => {
   );
 };
 
-const ScopeSection = ({ data, onChange }) => (
-  <div>
-    <SectionHeader title="Dependencies & Scope" description="Understand what this touches and where to draw the line." />
-    <Field label="Affected existing features" multiline hint="What current functionality does this change or interact with?" value={data.affected} onChange={(v) => onChange({ ...data, affected: v })} />
-    <Field label="New components or patterns needed" multiline hint="Can you reuse existing patterns, or does this require new ones?" value={data.newPatterns} onChange={(v) => onChange({ ...data, newPatterns: v })} />
-    <Field label="Technical dependencies or constraints" multiline value={data.technical} onChange={(v) => onChange({ ...data, technical: v })} />
-    <div className="border-t border-slate-100 pt-4 mt-4">
-      <p className="text-sm font-medium text-slate-600 mb-3">Scope Definition</p>
-      <Field label="Core (must-have)" multiline hint="What's absolutely required for this to work?" value={data.core} onChange={(v) => onChange({ ...data, core: v })} />
-      <Field label="Nice-to-have" multiline value={data.niceToHave} onChange={(v) => onChange({ ...data, niceToHave: v })} />
-      <Field label="Smallest viable version (MVP)" multiline hint="What's the thinnest slice that still solves the problem?" value={data.mvp} onChange={(v) => onChange({ ...data, mvp: v })} />
+const ScopeSection = ({ data, onChange }) => {
+  const items = data.items || [];
+  const setField = (field, val) => onChange({ ...data, [field]: val });
+  const setItems = (newItems) => onChange({ ...data, items: newItems });
+
+  const addItem = () =>
+    setItems([...items, { id: generateId(), item: "", description: "", version: "MVP", priority: "Must" }]);
+  const updateItem = (id, field, val) =>
+    setItems(items.map((it) => (it.id === id ? { ...it, [field]: val } : it)));
+  const removeItem = (id) => setItems(items.filter((it) => it.id !== id));
+
+  const autoResize = (e) => {
+    e.target.style.height = "auto";
+    e.target.style.height = e.target.scrollHeight + "px";
+  };
+
+  const textareaRef = (el) => {
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = el.scrollHeight + "px";
+    }
+  };
+
+  // Group items by version for the summary view
+  const byVersion = useMemo(() => {
+    const grouped = {};
+    VERSION_PHASES.forEach((v) => { grouped[v] = []; });
+    grouped["Unassigned"] = [];
+    items.forEach((it) => {
+      const v = it.version || "Unassigned";
+      if (!grouped[v]) grouped[v] = [];
+      grouped[v].push(it);
+    });
+    return grouped;
+  }, [items]);
+
+  const [viewMode, setViewMode] = useState("list"); // "list" or "versions"
+
+  return (
+    <div>
+      <SectionHeader title="Scope & Versions" description="Break the feature into scope items and assign each to a release version." />
+
+      {/* Dependencies */}
+      <Field label="Affected existing features" multiline hint="What current functionality does this change or interact with?" value={data.affected} onChange={(v) => setField("affected", v)} />
+      <Field label="New components or patterns needed" multiline hint="Can you reuse existing patterns, or does this require new ones?" value={data.newPatterns} onChange={(v) => setField("newPatterns", v)} />
+      <Field label="Technical dependencies or constraints" multiline value={data.technical} onChange={(v) => setField("technical", v)} />
+
+      {/* Scope items */}
+      <div className="border-t border-slate-100 pt-5 mt-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <p className="text-sm font-medium text-slate-700">Scope Items</p>
+            <p className="text-xs text-slate-400 mt-0.5">{items.length} item{items.length !== 1 ? "s" : ""} across {Object.values(byVersion).filter((arr) => arr.length > 0).length} version{Object.values(byVersion).filter((arr) => arr.length > 0).length !== 1 ? "s" : ""}</p>
+          </div>
+          <div className="flex gap-1 bg-slate-100 rounded-lg p-0.5">
+            <button
+              onClick={() => setViewMode("list")}
+              className={`px-3 py-1 text-xs rounded-md transition-colors ${viewMode === "list" ? "bg-white text-slate-700 shadow-sm" : "text-slate-500"}`}
+            >
+              List
+            </button>
+            <button
+              onClick={() => setViewMode("versions")}
+              className={`px-3 py-1 text-xs rounded-md transition-colors ${viewMode === "versions" ? "bg-white text-slate-700 shadow-sm" : "text-slate-500"}`}
+            >
+              By Version
+            </button>
+          </div>
+        </div>
+
+        {items.length === 0 && (
+          <div className="text-center py-8 text-slate-400 text-sm border border-dashed border-slate-200 rounded-lg mb-4">
+            No scope items yet. Add items and assign them to versions.
+          </div>
+        )}
+
+        {/* List view */}
+        {viewMode === "list" && items.length > 0 && (
+          <div className="space-y-2 mb-4">
+            {items.map((item, i) => {
+              const colors = VERSION_COLORS[item.version] || VERSION_COLORS.Future;
+              return (
+                <div key={item.id} className={`p-3 rounded-lg border ${colors.border} bg-white`}>
+                  <div className="flex gap-2 items-start">
+                    <div className={`w-1 self-stretch rounded-full shrink-0 ${colors.dot}`} />
+                    <div className="flex-1 space-y-2">
+                      <textarea
+                        ref={textareaRef}
+                        className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-300 font-medium resize-none overflow-hidden"
+                        style={{ minHeight: "36px" }}
+                        placeholder="Scope item name..."
+                        value={item.item}
+                        onChange={(e) => {
+                          updateItem(item.id, "item", e.target.value);
+                          autoResize(e);
+                        }}
+                        onInput={autoResize}
+                        rows={1}
+                      />
+                      <textarea
+                        ref={textareaRef}
+                        className="w-full px-2 py-1.5 text-xs border border-slate-100 rounded bg-slate-50 focus:outline-none focus:ring-1 focus:ring-slate-300 resize-none overflow-hidden"
+                        style={{ minHeight: "32px" }}
+                        placeholder="Brief description (optional)..."
+                        value={item.description}
+                        onChange={(e) => {
+                          updateItem(item.id, "description", e.target.value);
+                          autoResize(e);
+                        }}
+                        onInput={autoResize}
+                        rows={1}
+                      />
+                      <div className="flex gap-2 flex-wrap items-center">
+                        <select
+                          className={`px-2 py-1 text-xs rounded-full font-medium border ${colors.bg} ${colors.text} ${colors.border} focus:outline-none`}
+                          value={item.version} onChange={(e) => updateItem(item.id, "version", e.target.value)}
+                        >
+                          {VERSION_PHASES.map((v) => <option key={v} value={v}>{v}</option>)}
+                        </select>
+                        <select
+                          className="px-2 py-1 text-xs border border-slate-200 rounded bg-white focus:outline-none"
+                          value={item.priority} onChange={(e) => updateItem(item.id, "priority", e.target.value)}
+                        >
+                          {PRIORITY_LEVELS.map((p) => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <button onClick={() => removeItem(item.id)} className="text-slate-300 hover:text-red-400 text-lg mt-1 px-1">×</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Version grouped view */}
+        {viewMode === "versions" && items.length > 0 && (
+          <div className="space-y-4 mb-4">
+            {VERSION_PHASES.map((version) => {
+              const versionItems = byVersion[version] || [];
+              if (versionItems.length === 0) return null;
+              const colors = VERSION_COLORS[version];
+              return (
+                <div key={version} className={`rounded-lg border ${colors.border} overflow-hidden`}>
+                  <div className={`px-4 py-2 ${colors.bg} flex items-center justify-between`}>
+                    <span className={`text-sm font-semibold ${colors.text}`}>{version}</span>
+                    <span className={`text-xs ${colors.text} opacity-70`}>{versionItems.length} item{versionItems.length !== 1 ? "s" : ""}</span>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {versionItems.map((item) => (
+                      <div key={item.id} className="px-4 py-2.5 flex items-center gap-3 bg-white">
+                        <span className={`text-xs px-1.5 py-0.5 rounded border ${
+                          item.priority === "Must" ? "bg-red-50 text-red-600 border-red-200" :
+                          item.priority === "Should" ? "bg-amber-50 text-amber-600 border-amber-200" :
+                          item.priority === "Could" ? "bg-blue-50 text-blue-600 border-blue-200" :
+                          "bg-slate-50 text-slate-500 border-slate-200"
+                        }`}>
+                          {item.priority}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-700 truncate">{item.item || "Unnamed item"}</p>
+                          {item.description && <p className="text-xs text-slate-400 truncate">{item.description}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <button onClick={addItem} className="text-sm text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white border border-dashed border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 hover:border-slate-400 dark:hover:border-slate-500 transition-colors">
+          + Add scope item
+        </button>
+
+        {/* Version summary bar */}
+        {items.length > 0 && (
+          <div className="mt-5 pt-4 border-t border-slate-100">
+            <p className="text-xs text-slate-500 mb-2">Version distribution</p>
+            <div className="flex h-3 rounded-full overflow-hidden bg-slate-100">
+              {VERSION_PHASES.map((v) => {
+                const count = (byVersion[v] || []).length;
+                if (count === 0) return null;
+                const pct = (count / items.length) * 100;
+                return (
+                  <div
+                    key={v}
+                    className={`${VERSION_COLORS[v].dot} transition-all`}
+                    style={{ width: `${pct}%` }}
+                    title={`${v}: ${count} item${count !== 1 ? "s" : ""}`}
+                  />
+                );
+              })}
+            </div>
+            <div className="flex gap-3 mt-2 flex-wrap">
+              {VERSION_PHASES.map((v) => {
+                const count = (byVersion[v] || []).length;
+                if (count === 0) return null;
+                return (
+                  <span key={v} className="flex items-center gap-1.5 text-xs text-slate-500">
+                    <span className={`w-2 h-2 rounded-full ${VERSION_COLORS[v].dot}`} />
+                    {v}: {count}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const QuestionsSection = ({ data, onChange }) => {
+  const [statusFilter, setStatusFilter] = useState("Open");
   const addItem = () =>
-    onChange([...data, { id: generateId(), text: "", type: "Can Answer Now", status: "Open", answer: "" }]);
+    onChange([...data, { id: generateId(), text: "", type: "Stakeholder", status: "Open", answer: "", dependency: false, tags: [] }]);
   const updateItem = (id, field, val) =>
     onChange(data.map((item) => (item.id === id ? { ...item, [field]: val } : item)));
   const removeItem = (id) => onChange(data.filter((item) => item.id !== id));
   const openCount = data.filter((q) => q.status === "Open").length;
 
+  const autoResize = (e) => {
+    e.target.style.height = "auto";
+    e.target.style.height = e.target.scrollHeight + "px";
+  };
+
+  const textareaRef = (el) => {
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = el.scrollHeight + "px";
+    }
+  };
+
+  // Filter by status first
+  const filteredData = data.filter(item => item.status === statusFilter);
+  
+  // Group questions: non-dependencies first, then by type for dependencies
+  // Keep questions in main section if dependency is checked but no valid type selected yet
+  const nonDependencies = filteredData.filter(item => !item.dependency || (item.dependency && !QUESTION_TYPES.includes(item.type)));
+  const dependencies = filteredData.filter(item => item.dependency && QUESTION_TYPES.includes(item.type));
+  const groupedDependencies = QUESTION_TYPES.reduce((acc, type) => {
+    acc[type] = dependencies.filter(item => item.type === type);
+    return acc;
+  }, {});
+
+  const renderQuestion = (item, index, showNumber = true) => (
+    <div key={item.id} className={`p-3 rounded-lg border ${
+      item.status === "Answered" 
+        ? "bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600" 
+        : "bg-amber-50/30 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-800/40"
+    }`}>
+      <div className="flex gap-2 items-start">
+        {showNumber && <span className="text-xs text-slate-400 dark:text-slate-500 mt-2 font-mono w-5 shrink-0">{index + 1}</span>}
+        <div className="flex-1 space-y-2">
+          <textarea
+            ref={textareaRef}
+            className="w-full px-2 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-slate-300 dark:focus:ring-slate-500 resize-none overflow-hidden"
+            style={{ minHeight: "36px" }}
+            placeholder="What do you need to find out?"
+            value={item.text}
+            onChange={(e) => {
+              updateItem(item.id, "text", e.target.value);
+              autoResize(e);
+            }}
+            onInput={autoResize}
+            rows={1}
+          />
+          <div className="flex gap-2 flex-wrap items-center">
+            <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={item.dependency || false}
+                onChange={(e) => updateItem(item.id, "dependency", e.target.checked)}
+                className="rounded border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 focus:ring-slate-300 dark:focus:ring-slate-500"
+              />
+              Dependency
+            </label>
+            {item.dependency && (
+              <select
+                className="px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                value={QUESTION_TYPES.includes(item.type) ? item.type : ""}
+                onChange={(e) => updateItem(item.id, "type", e.target.value)}
+              >
+                {!QUESTION_TYPES.includes(item.type) && <option value="">Select type...</option>}
+                {QUESTION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            )}
+            <select
+              className="px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+              value={item.status} onChange={(e) => updateItem(item.id, "status", e.target.value)}
+            >
+              {QUESTION_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={(item.tags || []).includes("B2B")}
+                onChange={(e) => {
+                  const tags = item.tags || [];
+                  updateItem(item.id, "tags", e.target.checked ? [...tags.filter(t => t !== "B2B"), "B2B"] : tags.filter(t => t !== "B2B"));
+                }}
+                className="rounded border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 focus:ring-slate-300 dark:focus:ring-slate-500"
+              />
+              B2B
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={(item.tags || []).includes("B2C")}
+                onChange={(e) => {
+                  const tags = item.tags || [];
+                  updateItem(item.id, "tags", e.target.checked ? [...tags.filter(t => t !== "B2C"), "B2C"] : tags.filter(t => t !== "B2C"));
+                }}
+                className="rounded border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 focus:ring-slate-300 dark:focus:ring-slate-500"
+              />
+              B2C
+            </label>
+          </div>
+          {item.status === "Answered" && (
+            <textarea
+              ref={textareaRef}
+              className="w-full px-2 py-1.5 text-sm border border-emerald-200 dark:border-emerald-800 rounded bg-emerald-50 dark:bg-emerald-900/20 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-300 dark:focus:ring-emerald-700 resize-none overflow-hidden"
+              style={{ minHeight: "36px" }}
+              placeholder="Answer..."
+              value={item.answer}
+              onChange={(e) => {
+                updateItem(item.id, "answer", e.target.value);
+                autoResize(e);
+              }}
+              onInput={autoResize}
+              rows={1}
+            />
+          )}
+        </div>
+        <button onClick={() => removeItem(item.id)} className="text-slate-300 dark:text-slate-600 hover:text-red-400 dark:hover:text-red-500 text-lg mt-1 px-1">×</button>
+      </div>
+    </div>
+  );
+
   return (
     <div>
       <SectionHeader title="Open Questions" description="What you don't know. Surface these early — they're your blocker list." />
       {data.length > 0 && (
-        <p className="text-xs text-slate-500 mb-4">
-          {openCount} open · {data.length - openCount} answered
-        </p>
+        <div className="flex items-center justify-end mb-4">
+          <div className="flex gap-1">
+            <button
+              onClick={() => setStatusFilter("Open")}
+              className={`px-2 py-1 text-xs rounded ${
+                statusFilter === "Open" ? "bg-slate-800 dark:bg-slate-600 text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600"
+              }`}
+            >
+              Open
+            </button>
+            <button
+              onClick={() => setStatusFilter("Answered")}
+              className={`px-2 py-1 text-xs rounded ${
+                statusFilter === "Answered" ? "bg-slate-800 dark:bg-slate-600 text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600"
+              }`}
+            >
+              Answered
+            </button>
+          </div>
+        </div>
       )}
       {data.length === 0 && (
-        <div className="text-center py-8 text-slate-400 text-sm border border-dashed border-slate-200 rounded-lg mb-4">
+        <div className="text-center py-8 text-slate-400 dark:text-slate-500 text-sm border border-dashed border-slate-200 dark:border-slate-600 rounded-lg mb-4">
           No questions logged yet.
         </div>
       )}
-      <div className="space-y-3 mb-4">
-        {data.map((item, i) => (
-          <div key={item.id} className={`p-3 rounded-lg border ${item.status === "Answered" ? "bg-slate-50 border-slate-100" : "bg-amber-50/30 border-amber-200/60"}`}>
-            <div className="flex gap-2 items-start">
-              <span className="text-xs text-slate-400 mt-2 font-mono w-5 shrink-0">{i + 1}</span>
-              <div className="flex-1 space-y-2">
-                <input
-                  className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-300"
-                  placeholder="What do you need to find out?"
-                  value={item.text} onChange={(e) => updateItem(item.id, "text", e.target.value)}
-                />
-                <div className="flex gap-2 flex-wrap">
-                  <select
-                    className="px-2 py-1 text-xs border border-slate-200 rounded bg-white"
-                    value={item.type} onChange={(e) => updateItem(item.id, "type", e.target.value)}
-                  >
-                    {QUESTION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                  <select
-                    className="px-2 py-1 text-xs border border-slate-200 rounded bg-white"
-                    value={item.status} onChange={(e) => updateItem(item.id, "status", e.target.value)}
-                  >
-                    {QUESTION_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-                {item.status === "Answered" && (
-                  <input
-                    className="w-full px-2 py-1.5 text-sm border border-emerald-200 rounded bg-emerald-50 focus:outline-none focus:ring-1 focus:ring-emerald-300"
-                    placeholder="Answer..." value={item.answer}
-                    onChange={(e) => updateItem(item.id, "answer", e.target.value)}
-                  />
-                )}
-              </div>
-              <button onClick={() => removeItem(item.id)} className="text-slate-300 hover:text-red-400 text-lg mt-1 px-1">×</button>
-            </div>
+      <div className="space-y-4 mb-4">
+        {nonDependencies.length > 0 && (
+          <div className="space-y-3">
+            {nonDependencies.map((item, i) => renderQuestion(item, i))}
           </div>
-        ))}
+        )}
+        {QUESTION_TYPES.map(type => {
+          const items = groupedDependencies[type];
+          if (!items || items.length === 0) return null;
+          return (
+            <div key={type} className="space-y-3">
+              <h3 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mt-6">{type}</h3>
+              {items.map((item) => renderQuestion(item, 0, false))}
+            </div>
+          );
+        })}
       </div>
-      <button onClick={addItem} className="text-sm text-slate-500 hover:text-slate-700 border border-dashed border-slate-300 rounded-lg px-4 py-2 hover:border-slate-400 transition-colors">
+      <button onClick={addItem} className="text-sm text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white border border-dashed border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 hover:border-slate-400 dark:hover:border-slate-500 transition-colors">
         + Add question
       </button>
     </div>
   );
 };
+
+const ActionsSection = ({ data, onChange }) => {
+  const [statusFilter, setStatusFilter] = useState("To Do");
+  const [expandedNotes, setExpandedNotes] = useState({});
+  const addItem = () => onChange([...data, { id: generateId(), text: "", completed: false, note: "" }]);
+  const updateItem = (id, field, val) =>
+    onChange(data.map((item) => (item.id === id ? { ...item, [field]: val } : item)));
+  const removeItem = (id) => onChange(data.filter((item) => item.id !== id));
+  const toggleNote = (id) => setExpandedNotes(prev => ({ ...prev, [id]: !prev[id] }));
+
+  const autoResize = (e) => {
+    e.target.style.height = "auto";
+    e.target.style.height = e.target.scrollHeight + "px";
+  };
+
+  const textareaRef = (el) => {
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = el.scrollHeight + "px";
+    }
+  };
+
+  const completedCount = data.filter(item => item.completed).length;
+  const filteredData = statusFilter === "To Do" 
+    ? data.filter(item => !item.completed)
+    : data.filter(item => item.completed);
+
+  return (
+    <div>
+      {data.length > 0 && (
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-sm text-slate-600 dark:text-slate-300">{completedCount} of {data.length} completed</p>
+          <div className="flex gap-1">
+            <button
+              onClick={() => setStatusFilter("To Do")}
+              className={`px-2 py-1 text-xs rounded ${
+                statusFilter === "To Do" ? "bg-slate-800 dark:bg-slate-600 text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600"
+              }`}
+            >
+              To Do
+            </button>
+            <button
+              onClick={() => setStatusFilter("Done")}
+              className={`px-2 py-1 text-xs rounded ${
+                statusFilter === "Done" ? "bg-slate-800 dark:bg-slate-600 text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600"
+              }`}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+      {data.length === 0 && (
+        <div className="text-center py-8 text-slate-400 dark:text-slate-500 text-sm border border-dashed border-slate-200 dark:border-slate-600 rounded-lg mb-4">
+          No actions yet. Add tasks below.
+        </div>
+      )}
+      <div className="space-y-2 mb-4">
+        {filteredData.map((item) => (
+          <div key={item.id} className={`rounded-lg ${item.completed ? 'bg-green-50 dark:bg-green-900/20' : 'bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600'}`}>
+            <div className="flex gap-3 items-start p-3">
+              <input
+                type="checkbox"
+                checked={item.completed}
+                onChange={(e) => updateItem(item.id, "completed", e.target.checked)}
+                className={`w-5 h-5 mt-1 rounded focus:ring-2 shrink-0 ${item.completed ? 'border-green-400 dark:border-green-500 text-green-600 dark:text-green-500 focus:ring-green-400 dark:focus:ring-green-500' : 'border-slate-300 dark:border-slate-500 text-slate-800 dark:text-slate-200 focus:ring-slate-400 dark:focus:ring-slate-500'}`}
+              />
+              <div className="flex-1 min-w-0">
+                <textarea
+                  ref={textareaRef}
+                  className={`w-full text-sm border-none bg-transparent focus:outline-none resize-none overflow-hidden ${item.completed ? 'text-green-700 dark:text-green-400' : 'text-slate-900 dark:text-slate-100'}`}
+                  style={{ minHeight: "24px" }}
+                  placeholder="Describe the action..."
+                  value={item.text}
+                  onChange={(e) => {
+                    updateItem(item.id, "text", e.target.value);
+                    autoResize(e);
+                  }}
+                  onInput={autoResize}
+                  rows={1}
+                />
+                {expandedNotes[item.id] && (
+                  <textarea
+                    ref={textareaRef}
+                    className="w-full mt-2 px-2 py-1.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-500 resize-none overflow-hidden text-slate-900 dark:text-slate-100"
+                    style={{ minHeight: "36px" }}
+                    placeholder="Add a note or link..."
+                    value={item.note || ""}
+                    onChange={(e) => {
+                      updateItem(item.id, "note", e.target.value);
+                      autoResize(e);
+                    }}
+                    onInput={autoResize}
+                    rows={1}
+                  />
+                )}
+              </div>
+              <div className="flex items-center gap-1">
+                {item.completed && (
+                  <button
+                    onClick={() => toggleNote(item.id)}
+                    className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 text-sm shrink-0"
+                  >
+                    {expandedNotes[item.id] ? '⌄' : '⌃'}
+                  </button>
+                )}
+                <button
+                  onClick={() => removeItem(item.id)}
+                  className="text-slate-300 dark:text-slate-600 hover:text-red-400 dark:hover:text-red-500 text-lg shrink-0"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button onClick={addItem} className="text-sm text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-slate-50 border border-dashed border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 hover:border-slate-400 dark:hover:border-slate-500 transition-colors font-medium">
+        + Add Action
+      </button>
+    </div>
+  );
+};
+
+const NotesSection = ({ data, onChange }) => (
+  <div>
+    <SectionHeader title="Notes" description="Additional notes, observations, or reminders about this requirement." />
+    <Field label="Notes" multiline hint="Use this space for any additional information that doesn't fit elsewhere." rows={10} value={data} onChange={onChange} />
+  </div>
+);
+
+const MappingSection = ({ data, onChange }) => (
+  <div>
+    <SectionHeader title="Mapping" description="Visual mapping and conceptual diagrams for this requirement." />
+    <div className="mb-4">
+      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Figma Embed URL</label>
+      <input
+        type="text"
+        value={data.figmaUrl || ""}
+        onChange={(e) => onChange({ ...data, figmaUrl: e.target.value })}
+        placeholder="https://embed.figma.com/..."
+        className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400"
+      />
+      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Paste a Figma embed URL to display your mapping board</p>
+    </div>
+    {data.figmaUrl && (
+      <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-white dark:bg-slate-800 w-full">
+        <iframe
+          style={{ border: "1px solid rgba(0, 0, 0, 0.1)", minHeight: "800px" }}
+          width="100%"
+          height="800"
+          src={data.figmaUrl}
+          allowFullScreen
+          className="w-full h-[800px]"
+        />
+      </div>
+    )}
+  </div>
+);
 
 const SummarySection = ({ data, onChange }) => (
   <div>
@@ -422,50 +1717,720 @@ const SummarySection = ({ data, onChange }) => (
   </div>
 );
 
+// Audio Icon Component
+const AudioIcon = ({ className = "w-4 h-4" }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+    <line x1="12" y1="19" x2="12" y2="23" />
+    <line x1="8" y1="23" x2="16" y2="23" />
+  </svg>
+);
+
+// Folder Icon Component
+const FolderIcon = ({ className = "w-4 h-4" }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+  </svg>
+);
+
+// Text/Document Icon Component
+const TextIcon = ({ className = "w-4 h-4" }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="16" y1="13" x2="8" y2="13" />
+    <line x1="16" y1="17" x2="8" y2="17" />
+    <polyline points="10 9 9 9 8 9" />
+  </svg>
+);
+
+// Import Markdown Modal Component
+const ImportMarkdownModal = ({ isOpen, onClose, onImportNew, onImportExisting, analysisName }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-8" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md flex flex-col" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700">
+          <h3 className="font-semibold text-slate-800 dark:text-slate-200">Import Markdown</h3>
+          <button onClick={onClose} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">×</button>
+        </div>
+
+        {/* Content */}
+        <div className="p-6">
+          <p className="text-sm text-slate-600 dark:text-slate-300 mb-6">
+            Choose how to import this markdown file:
+          </p>
+
+          <div className="space-y-3">
+            <button
+              onClick={onImportNew}
+              className="w-full px-4 py-3 text-left border-2 border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-400 dark:hover:border-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+            >
+              <div className="font-medium text-slate-800 dark:text-slate-200 mb-1">Create New Task</div>
+              <div className="text-sm text-slate-500 dark:text-slate-400">Import as a new design task</div>
+            </button>
+
+            <button
+              onClick={onImportExisting}
+              className="w-full px-4 py-3 text-left border-2 border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-400 dark:hover:border-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+            >
+              <div className="font-medium text-slate-800 dark:text-slate-200 mb-1">Add to Current Task</div>
+              <div className="text-sm text-slate-500 dark:text-slate-400">Merge with "{analysisName}"</div>
+            </button>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-700 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white border border-slate-300 dark:border-slate-600 rounded-lg hover:border-slate-400 dark:hover:border-slate-500 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Paste & Analyze Modal Component
+const PasteAnalyzeModal = ({ 
+  isOpen, 
+  onClose, 
+  pastedText, 
+  onTextChange, 
+  onAnalyze, 
+  analyzing, 
+  results,
+  onApply,
+  githubAIKey,
+  onSetGitHubAIKey
+}) => {
+  if (!isOpen) return null;
+
+  const hasResults = results && Object.keys(results).length > 0;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-8" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-3xl max-h-full flex flex-col" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700">
+          <h3 className="font-semibold text-slate-800 dark:text-slate-200">Paste & Analyze Text</h3>
+          <button onClick={onClose} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 text-2xl leading-none">×</button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {/* Paste Area */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-slate-700 mb-2">Paste Text</label>
+            <textarea
+              value={pastedText}
+              onChange={(e) => onTextChange(e.target.value)}
+              placeholder="Paste your Jira ticket, requirements, or any text here..."
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400"
+              rows={10}
+            />
+            {!hasResults && pastedText.trim() && (
+              <button
+                onClick={onAnalyze}
+                disabled={analyzing}
+                className="mt-3 px-4 py-2 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+              >
+                {analyzing ? 'Analyzing...' : (githubAIKey ? 'Analyze with AI' : 'Analyze')}
+              </button>
+            )}
+          </div>
+
+          {/* GitHub AI Key Input */}
+          {!githubAIKey && pastedText.trim() && (
+            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-800 mb-2">
+                Add a GitHub Personal Access Token for AI-powered field extraction. Without it, text will be added to notes as bullet points.
+              </p>
+              <input
+                type="password"
+                placeholder="github_pat_... or ghp_..."
+                value={githubAIKey || ''}
+                onChange={(e) => onSetGitHubAIKey(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-blue-300 rounded bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+            </div>
+          )}
+          
+          {/* GitHub AI Key Status */}
+          {githubAIKey && pastedText.trim() && (
+            <div className="mb-6 p-4 bg-slate-50 border border-slate-200 rounded-lg flex items-start justify-between">
+              <div className="flex-1">
+                <p className="text-sm font-medium text-slate-800 mb-1">GitHub Token: Active</p>
+                <p className="text-xs text-slate-600">
+                  {!hasResults ? 'Click "Analyze with AI" to extract structured information.' : 'Token is saved. Clear to enter a new one.'}
+                </p>
+              </div>
+              <button
+                onClick={() => onSetGitHubAIKey('')}
+                className="ml-4 px-3 py-1 text-xs text-red-600 hover:text-red-800 border border-red-300 hover:border-red-400 rounded transition-colors"
+              >
+                Clear Token
+              </button>
+            </div>
+          )}
+
+          {/* Results Preview */}
+          {hasResults && (
+            <div>
+              {/* Fallback Warning */}
+              {results._fallback && (
+                <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-sm text-yellow-800 font-medium mb-1">Basic formatting applied</p>
+                  <p className="text-xs text-yellow-700">
+                    {results._reason || 'AI extraction was not used.'}
+                    {results._reason && results._reason.includes('token') ? '' : ' Clear the token above and add a valid GitHub Personal Access Token to use AI-powered extraction.'}
+                  </p>
+                </div>
+              )}
+              
+              <h4 className="text-sm font-semibold text-slate-800 mb-3">
+                {results._fallback ? 'Extracted Information' : 'Fields to Populate'}
+              </h4>
+              
+              {/* Field Mapping Display */}
+              <div className="space-y-2 mb-4">
+                {results.featureName && (
+                  <div className="border border-blue-200 rounded-lg p-3 bg-blue-50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-blue-700 px-2 py-0.5 bg-blue-100 rounded">Overview</span>
+                      <span className="text-xs font-medium text-slate-600">Feature Name</span>
+                    </div>
+                    <div className="text-sm text-slate-700">{results.featureName}</div>
+                  </div>
+                )}
+                
+                {results.date && (
+                  <div className="border border-blue-200 rounded-lg p-3 bg-blue-50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-blue-700 px-2 py-0.5 bg-blue-100 rounded">Overview</span>
+                      <span className="text-xs font-medium text-slate-600">Date</span>
+                    </div>
+                    <div className="text-sm text-slate-700">{results.date}</div>
+                  </div>
+                )}
+                
+                {results.requestor && (
+                  <div className="border border-blue-200 rounded-lg p-3 bg-blue-50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-blue-700 px-2 py-0.5 bg-blue-100 rounded">Overview</span>
+                      <span className="text-xs font-medium text-slate-600">Requestor</span>
+                    </div>
+                    <div className="text-sm text-slate-700">{results.requestor}</div>
+                  </div>
+                )}
+                
+                {results.origin && (
+                  <div className="border border-blue-200 rounded-lg p-3 bg-blue-50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-blue-700 px-2 py-0.5 bg-blue-100 rounded">Overview</span>
+                      <span className="text-xs font-medium text-slate-600">Origin</span>
+                    </div>
+                    <div className="text-sm text-slate-700">{results.origin}</div>
+                  </div>
+                )}
+                
+                {results.description && (
+                  <div className="border border-blue-200 rounded-lg p-3 bg-blue-50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-blue-700 px-2 py-0.5 bg-blue-100 rounded">Overview</span>
+                      <span className="text-xs font-medium text-slate-600">Description</span>
+                    </div>
+                    <div className="text-sm text-slate-700 whitespace-pre-wrap">{results.description}</div>
+                  </div>
+                )}
+                
+                {results.problem && (
+                  <div className="border border-purple-200 rounded-lg p-3 bg-purple-50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-purple-700 px-2 py-0.5 bg-purple-100 rounded">Problem</span>
+                      <span className="text-xs font-medium text-slate-600">Problem Statement</span>
+                    </div>
+                    <div className="text-sm text-slate-700 whitespace-pre-wrap">{results.problem}</div>
+                  </div>
+                )}
+                
+                {results.who && (
+                  <div className="border border-purple-200 rounded-lg p-3 bg-purple-50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-purple-700 px-2 py-0.5 bg-purple-100 rounded">Problem</span>
+                      <span className="text-xs font-medium text-slate-600">Who (Target Users)</span>
+                    </div>
+                    <div className="text-sm text-slate-700 whitespace-pre-wrap">{results.who}</div>
+                  </div>
+                )}
+                
+                {results.outcome && (
+                  <div className="border border-purple-200 rounded-lg p-3 bg-purple-50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-purple-700 px-2 py-0.5 bg-purple-100 rounded">Problem</span>
+                      <span className="text-xs font-medium text-slate-600">Outcome</span>
+                    </div>
+                    <div className="text-sm text-slate-700 whitespace-pre-wrap">{results.outcome}</div>
+                  </div>
+                )}
+                
+                {results.segments && (
+                  <div className="border border-green-200 rounded-lg p-3 bg-green-50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-green-700 px-2 py-0.5 bg-green-100 rounded">Context</span>
+                      <span className="text-xs font-medium text-slate-600">User Segments</span>
+                    </div>
+                    <div className="text-sm text-slate-700 whitespace-pre-wrap">{results.segments}</div>
+                  </div>
+                )}
+                
+                {results.workflow && (
+                  <div className="border border-green-200 rounded-lg p-3 bg-green-50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-green-700 px-2 py-0.5 bg-green-100 rounded">Context</span>
+                      <span className="text-xs font-medium text-slate-600">Current Workflow</span>
+                    </div>
+                    <div className="text-sm text-slate-700 whitespace-pre-wrap">{results.workflow}</div>
+                  </div>
+                )}
+                
+                {results.assumptions && Array.isArray(results.assumptions) && results.assumptions.length > 0 && (
+                  <div className="border border-orange-200 rounded-lg p-3 bg-orange-50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-orange-700 px-2 py-0.5 bg-orange-100 rounded">Assumptions</span>
+                      <span className="text-xs font-medium text-slate-600">{results.assumptions.length} item(s)</span>
+                    </div>
+                    <div className="text-sm text-slate-700">
+                      {results.assumptions.map((item, i) => (
+                        <div key={i}>• {item}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {results.questions && Array.isArray(results.questions) && results.questions.length > 0 && (
+                  <div className="border border-pink-200 rounded-lg p-3 bg-pink-50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-pink-700 px-2 py-0.5 bg-pink-100 rounded">Questions</span>
+                      <span className="text-xs font-medium text-slate-600">{results.questions.length} item(s)</span>
+                    </div>
+                    <div className="text-sm text-slate-700">
+                      {results.questions.map((item, i) => (
+                        <div key={i}>• {item}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {results.actions && Array.isArray(results.actions) && results.actions.length > 0 && (
+                  <div className="border border-indigo-200 rounded-lg p-3 bg-indigo-50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-indigo-700 px-2 py-0.5 bg-indigo-100 rounded">Actions</span>
+                      <span className="text-xs font-medium text-slate-600">{results.actions.length} item(s)</span>
+                    </div>
+                    <div className="text-sm text-slate-700">
+                      {results.actions.map((item, i) => (
+                        <div key={i}>• {item}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {results.notes && (
+                  <div className="border border-slate-200 rounded-lg p-3 bg-slate-50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-slate-700 px-2 py-0.5 bg-slate-100 rounded">Notes</span>
+                    </div>
+                    <div className="text-sm text-slate-700">
+                      {Array.isArray(results.notes) ? (
+                        results.notes.map((note, i) => <div key={i}>• {note}</div>)
+                      ) : (
+                        <div className="whitespace-pre-wrap">{results.notes}</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 border border-slate-300 rounded-lg hover:border-slate-400 transition-colors"
+          >
+            Cancel
+          </button>
+          {hasResults && (
+            <button
+              onClick={onApply}
+              className="px-4 py-2 text-sm font-medium bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors"
+            >
+              Apply to Task
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Audio Analysis Modal Component
+const AudioAnalysisModal = ({
+  isOpen,
+  onClose,
+  isRecording,
+  transcript,
+  audioProcessing,
+  aiSuggestions,
+  selectedSections,
+  onToggleSection,
+  onUpdateSuggestion,
+  onStartRecording,
+  onStopRecording,
+  onFileUpload,
+  onAnalyze,
+  onApply,
+  githubAIKey,
+  onSetGitHubAIKey
+}) => {
+  const fileInputRef = useRef(null);
+
+  if (!isOpen) return null;
+
+  const hasTranscript = transcript && transcript.trim().length > 0;
+  const hasSuggestions = Object.keys(aiSuggestions).length > 0;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-8" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-3xl max-h-full flex flex-col" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700">
+          <h3 className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+            <AudioIcon className="w-5 h-5" />
+            Audio Analysis
+          </h3>
+          <button onClick={onClose} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">×</button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {/* Recording Controls */}
+          <div className="mb-6">
+            <div className="flex items-center gap-3 mb-3">
+              <button
+                onClick={isRecording ? onStopRecording : onStartRecording}
+                disabled={audioProcessing}
+                className={`px-4 py-2.5 text-sm rounded-lg font-medium transition-colors flex items-center gap-2 ${
+                  isRecording
+                    ? 'bg-red-500 text-white hover:bg-red-600'
+                    : 'bg-slate-800 dark:bg-slate-600 text-white hover:bg-slate-700 dark:hover:bg-slate-500'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                {isRecording ? (
+                  <>
+                    <span className="w-3 h-3 bg-white rounded-sm"></span>
+                    Stop Recording
+                  </>
+                ) : (
+                  <>
+                    <AudioIcon className="w-4 h-4" />
+                    Start Recording
+                  </>
+                )}
+              </button>
+              <span className="text-slate-400">or</span>
+              <label className="px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white border border-slate-300 dark:border-slate-600 rounded-lg hover:border-slate-400 dark:hover:border-slate-500 transition-colors cursor-pointer font-medium flex items-center gap-2">
+                <FolderIcon className="w-4 h-4" />
+                Upload Audio
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".mp3,.wav,.m4a,.ogg,.webm"
+                  onChange={onFileUpload}
+                  className="hidden"
+                  disabled={audioProcessing || isRecording}
+                />
+              </label>
+              {audioProcessing && <span className="text-sm text-slate-500">Processing...</span>}
+            </div>
+            {isRecording && (
+              <div className="flex items-center gap-2 text-red-500 text-sm">
+                <span className="inline-block w-3 h-3 bg-red-500 rounded-full animate-pulse"></span>
+                Recording in progress...
+              </div>
+            )}
+          </div>
+
+          {/* Transcript */}
+          {hasTranscript && (
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-slate-700 mb-2">Transcript</label>
+              <textarea
+                value={transcript}
+                readOnly
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-slate-50 text-slate-700 font-mono"
+                rows={6}
+              />
+              {!hasSuggestions && (
+                <button
+                  onClick={onAnalyze}
+                  disabled={audioProcessing}
+                  className="mt-3 px-4 py-2 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                >
+                  {githubAIKey ? 'Analyze with AI' : 'Prepare Suggestions'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* AI Suggestions */}
+          {hasSuggestions && (
+            <div>
+              <h4 className="text-sm font-semibold text-slate-800 mb-3">Suggested Updates</h4>
+              <div className="space-y-3">
+                {Object.entries(aiSuggestions).map(([section, content]) => (
+                  <div key={section} className="border border-slate-200 rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedSections[section] !== false}
+                        onChange={() => onToggleSection(section)}
+                        className="rounded border-slate-300 text-slate-800 focus:ring-slate-400"
+                      />
+                      <label className="text-sm font-medium text-slate-700 capitalize">{section}</label>
+                    </div>
+                    <textarea
+                      value={content}
+                      onChange={(e) => onUpdateSuggestion(section, e.target.value)}
+                      className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 resize-none"
+                      rows={3}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* GitHub AI Key Input */}
+          {!githubAIKey && hasTranscript && (
+            <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-800 mb-2">
+                Add a GitHub Personal Access Token for AI-powered analysis, or continue manually.
+              </p>
+              <input
+                type="password"
+                placeholder="github_pat_... or ghp_..."
+                value={githubAIKey}
+                onChange={(e) => onSetGitHubAIKey(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-blue-300 rounded bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+            </div>
+          )}
+          
+          {/* GitHub AI Key Status */}
+          {githubAIKey && hasTranscript && (
+            <div className="mt-6 p-4 bg-slate-50 border border-slate-200 rounded-lg flex items-start justify-between">
+              <div className="flex-1">
+                <p className="text-sm font-medium text-slate-800 mb-1">GitHub Token: Active</p>
+                <p className="text-xs text-slate-600">Token is saved. Clear to enter a new one.</p>
+              </div>
+              <button
+                onClick={() => onSetGitHubAIKey('')}
+                className="ml-4 px-3 py-1 text-xs text-red-600 hover:text-red-800 border border-red-300 hover:border-red-400 rounded transition-colors"
+              >
+                Clear Token
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-700 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white border border-slate-300 dark:border-slate-600 rounded-lg hover:border-slate-400 dark:hover:border-slate-500 transition-colors"
+          >
+            Cancel
+          </button>
+          {hasSuggestions && (
+            <button
+              onClick={onApply}
+              className="px-4 py-2 text-sm font-medium bg-slate-800 dark:bg-slate-600 text-white rounded-lg hover:bg-slate-700 dark:hover:bg-slate-500 transition-colors"
+            >
+              Apply Changes
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // --- Main App ---
 
 export default function RequirementAnalyzer() {
-  const [analyses, setAnalyses] = useState(() => {
-    // Load from localStorage
-    const saved = localStorage.getItem('requirement-analyses');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {}
-    }
-    return [createBlankAnalysis("Sample: Dark Mode Toggle")];
+  const [analyses, setAnalyses] = useState([createBlankAnalysis("Sample: Dark Mode Toggle")]);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [activeId, setActiveId] = useState(() => analyses[0]?.id);
+  const [activeSection, setActiveSection] = useState(() => {
+    const saved = localStorage.getItem("activeSection");
+    return saved || "overview";
   });
-  const [activeId, setActiveId] = useState(analyses[0].id);
-  const [activeSection, setActiveSection] = useState("overview");
   const [showExport, setShowExport] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [shareUrl, setShareUrl] = useState("");
+  const [actionsPanelOpen, setActionsPanelOpen] = useState(true);
+  const [phaseFilter, setPhaseFilter] = useState("All");
+  const [githubToken, setGithubToken] = useState(() => localStorage.getItem("githubToken") || "");
+  const [loadGistId, setLoadGistId] = useState("");
+  const [gistLoading, setGistLoading] = useState(false);
+  const [gistExpanded, setGistExpanded] = useState(false);
+  const [syncOptionsExpanded, setSyncOptionsExpanded] = useState(false);
+  const [audioModalOpen, setAudioModalOpen] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const [audioProcessing, setAudioProcessing] = useState(false);
+  const [githubAIKey, setGitHubAIKey] = useState(() => localStorage.getItem("githubAIKey") || "");
+  const [aiSuggestions, setAiSuggestions] = useState({});
+  const [selectedSections, setSelectedSections] = useState({});
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importedMarkdown, setImportedMarkdown] = useState("");
+  const [importMode, setImportMode] = useState(""); // "new" or "existing"
+  const [pasteModalOpen, setPasteModalOpen] = useState(false);
+  const [pastedText, setPastedText] = useState("");
+  const [pasteAnalyzing, setPasteAnalyzing] = useState(false);
+  const [pasteResults, setPasteResults] = useState(null);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("darkMode") === "true");
+  
+  const fileInputRef = useRef(null);
 
-  // Save to localStorage whenever analyses change
+  // Check if any analysis has secure mode enabled
+  const hasSecureAnalysis = useMemo(() => 
+    analyses.some(a => a.secureMode === true),
+    [analyses]
+  );
+
+  // Load data on mount (encrypted if any analysis has secure mode)
   useEffect(() => {
-    localStorage.setItem('requirement-analyses', JSON.stringify(analyses));
-  }, [analyses]);
+    const loadData = async () => {
+      try {
+        let saved;
+        // Try encrypted storage first
+        saved = await secureStorage.getItem("requirementAnalyses");
+        
+        // If no encrypted data, try plain storage
+        if (!saved) {
+          saved = localStorage.getItem("requirementAnalyses");
+        }
+        
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          const migrated = Array.isArray(parsed) ? parsed.map(migrateAnalysis) : [];
+          if (migrated.length > 0) {
+            setAnalyses(migrated);
+            if (!activeId || !migrated.find(a => a.id === activeId)) {
+              setActiveId(migrated[0].id);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load data:", error);
+        // Keep default data on error
+      } finally {
+        setDataLoaded(true);
+      }
+    };
+    loadData();
+  }, []); // Only run on mount
 
-  // Load analysis from URL on mount
+  // Apply dark mode class to document
+  useEffect(() => {
+    console.log('Dark mode changed:', darkMode);
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+      console.log('Added dark class');
+    } else {
+      document.documentElement.classList.remove('dark');
+      console.log('Removed dark class');
+    }
+    localStorage.setItem("darkMode", darkMode);
+  }, [darkMode]);
+
+  // Load from URL share link on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const sharedData = params.get('shared');
+    const sharedData = params.get("data");
     if (sharedData) {
       try {
         const decoded = JSON.parse(atob(sharedData));
-        if (decoded.id) {
-          setAnalyses(prev => [decoded, ...prev]);
-          setActiveId(decoded.id);
-          window.history.replaceState({}, '', window.location.pathname);
-        }
-      } catch (e) {
-        console.error('Failed to load shared analysis:', e);
+        const migrated = migrateAnalysis(decoded);
+        setAnalyses([migrated]);
+        setActiveId(migrated.id);
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } catch (err) {
+        console.error("Failed to decode shared link:", err);
       }
     }
   }, []);
 
+  // Save to localStorage whenever analyses change (encrypted if any analysis has secure mode)
+  useEffect(() => {
+    if (dataLoaded) {
+      if (hasSecureAnalysis) {
+        secureStorage.setItem("requirementAnalyses", JSON.stringify(analyses));
+        // Clear plain storage when switching to encrypted
+        localStorage.removeItem("requirementAnalyses");
+      } else {
+        localStorage.setItem("requirementAnalyses", JSON.stringify(analyses));
+        // Clear encrypted storage when switching to plain
+        secureStorage.removeItem("requirementAnalyses");
+      }
+    }
+  }, [analyses, dataLoaded, hasSecureAnalysis]);
+
+  // Remove old secure mode preference (no longer needed)
+  useEffect(() => {
+    localStorage.removeItem("secureMode");
+  }, []);
+
+  // Save active section to localStorage
+  useEffect(() => {
+    localStorage.setItem("activeSection", activeSection);
+  }, [activeSection]);
+
+  // Save GitHub token to localStorage
+  useEffect(() => {
+    if (githubToken) {
+      localStorage.setItem("githubToken", githubToken);
+    } else {
+      localStorage.removeItem("githubToken");
+    }
+  }, [githubToken]);
+
+  // Save GitHub AI key to localStorage
+  useEffect(() => {
+    if (githubAIKey) {
+      localStorage.setItem("githubAIKey", githubAIKey);
+    } else {
+      localStorage.removeItem("githubAIKey");
+    }
+  }, [githubAIKey]);
+
   const active = useMemo(() => analyses.find((a) => a.id === activeId), [analyses, activeId]);
+
+  const filteredAnalyses = useMemo(() => {
+    if (phaseFilter === "All") return analyses;
+    if (phaseFilter === "Untagged") return analyses.filter((a) => !a.phase);
+    return analyses.filter((a) => a.phase === phaseFilter);
+  }, [analyses, phaseFilter]);
 
   const updateActive = useCallback(
     (sectionKey, value) => {
@@ -478,11 +2443,23 @@ export default function RequirementAnalyzer() {
     [activeId]
   );
 
+  const updatePhase = useCallback(
+    (phase) => {
+      setAnalyses((prev) =>
+        prev.map((a) =>
+          a.id === activeId ? { ...a, phase, updatedAt: new Date().toISOString() } : a
+        )
+      );
+    },
+    [activeId]
+  );
+
   const createNew = () => {
     const newA = createBlankAnalysis();
     setAnalyses((prev) => [newA, ...prev]);
     setActiveId(newA.id);
     setActiveSection("overview");
+    setPhaseFilter("All");
   };
 
   const deleteAnalysis = (id) => {
@@ -502,128 +2479,603 @@ export default function RequirementAnalyzer() {
     setAnalyses((prev) => prev.map((a) => (a.id === activeId ? { ...a, name } : a)));
   };
 
-  const handleExportMd = () => {
-    if (!active) return;
-    setShowExport(true);
+  const handleExportMd = () => { if (active) setShowExport(true); };
+
+  const handleImportMd = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const markdown = e.target.result;
+      setImportedMarkdown(markdown);
+      setImportModalOpen(true);
+    };
+    reader.readAsText(file);
+    // Reset input so same file can be selected again
+    event.target.value = "";
   };
 
-  const handleImport = (e) => {
-    const text = e.target.value;
+  const handleImportNew = () => {
+    if (!importedMarkdown) return;
+    
     try {
-      const parsed = JSON.parse(text);
-      if (Array.isArray(parsed)) {
-        setAnalyses(parsed);
-        setActiveId(parsed[0]?.id);
-      } else if (parsed.id) {
-        setAnalyses((prev) => [parsed, ...prev]);
-        setActiveId(parsed.id);
-      }
-    } catch {}
+      const imported = importFromMarkdown(importedMarkdown);
+      setAnalyses((prev) => [imported, ...prev]);
+      setActiveId(imported.id);
+      setActiveSection("overview");
+      setImportModalOpen(false);
+      setImportedMarkdown("");
+      alert(`Created new task: ${imported.name}`);
+    } catch (error) {
+      alert(`Failed to import markdown:\n${error.message}`);
+    }
+  };
+
+  const handleImportExisting = () => {
+    if (!importedMarkdown || !active) return;
+    
+    try {
+      const imported = importFromMarkdown(importedMarkdown);
+      
+      // Merge with existing analysis
+      setAnalyses((prev) =>
+        prev.map((a) => {
+          if (a.id !== activeId) return a;
+          
+          return {
+            ...a,
+            // Merge arrays
+            assumptions: [...a.assumptions, ...imported.assumptions],
+            questions: [...a.questions, ...imported.questions],
+            actions: [...(a.actions || []), ...imported.actions],
+            // Append text fields
+            notes: a.notes ? `${a.notes}\n\n${imported.notes}` : imported.notes,
+            // Keep existing values but allow imported ones to fill empty fields
+            overview: {
+              featureName: a.overview.featureName || imported.overview.featureName,
+              date: a.overview.date || imported.overview.date,
+              requestor: a.overview.requestor || imported.overview.requestor,
+              origin: a.overview.origin || imported.overview.origin,
+              originOther: a.overview.originOther || imported.overview.originOther,
+              description: a.overview.description ? `${a.overview.description}\n\n${imported.overview.description}` : imported.overview.description,
+            },
+            problem: {
+              problem: a.problem.problem || imported.problem.problem,
+              who: a.problem.who || imported.problem.who,
+              outcome: a.problem.outcome || imported.problem.outcome,
+              metrics: a.problem.metrics || imported.problem.metrics,
+              ifNotBuilt: a.problem.ifNotBuilt || imported.problem.ifNotBuilt,
+            },
+            context: {
+              segments: a.context.segments || imported.context.segments,
+              workflow: a.context.workflow || imported.context.workflow,
+              workarounds: a.context.workarounds || imported.context.workarounds,
+              triggers: a.context.triggers || imported.context.triggers,
+              beforeAfter: a.context.beforeAfter || imported.context.beforeAfter,
+            },
+            summary: {
+              confidence: a.summary.confidence || imported.summary.confidence,
+              concerns: a.summary.concerns || imported.summary.concerns,
+              nextSteps: a.summary.nextSteps || imported.summary.nextSteps,
+            },
+            updatedAt: new Date().toISOString(),
+          };
+        })
+      );
+      
+      setImportModalOpen(false);
+      setImportedMarkdown("");
+      alert("Merged markdown content with current task");
+    } catch (error) {
+      alert(`Failed to import markdown:\n${error.message}`);
+    }
+  };
+
+  const handlePasteAnalyze = async () => {
+    if (!pastedText.trim()) return;
+    
+    setPasteAnalyzing(true);
+    
+    try {
+      const results = await analyzePastedText(pastedText, githubAIKey);
+      setPasteResults(results);
+    } catch (error) {
+      alert(`Failed to analyze text:\n${error.message}`);
+    } finally {
+      setPasteAnalyzing(false);
+    }
+  };
+
+  const handleApplyPasteResults = () => {
+    if (!pasteResults || !active) return;
+    
+    setAnalyses((prev) =>
+      prev.map((a) => {
+        if (a.id !== activeId) return a;
+        
+        const updated = { ...a, updatedAt: new Date().toISOString() };
+        
+        // Update overview fields
+        if (pasteResults.featureName) {
+          updated.overview = { ...updated.overview, featureName: updated.overview.featureName || pasteResults.featureName };
+        }
+        if (pasteResults.date) {
+          updated.overview = { ...updated.overview, date: updated.overview.date || pasteResults.date };
+        }
+        if (pasteResults.requestor) {
+          updated.overview = { ...updated.overview, requestor: updated.overview.requestor || pasteResults.requestor };
+        }
+        if (pasteResults.origin) {
+          updated.overview = { ...updated.overview, origin: updated.overview.origin || pasteResults.origin };
+        }
+        if (pasteResults.description) {
+          updated.overview = { 
+            ...updated.overview, 
+            description: updated.overview.description 
+              ? `${updated.overview.description}\n\n${pasteResults.description}` 
+              : pasteResults.description 
+          };
+        }
+        
+        // Update problem fields
+        if (pasteResults.problem) {
+          updated.problem = { ...updated.problem, problem: updated.problem.problem || pasteResults.problem };
+        }
+        if (pasteResults.who) {
+          updated.problem = { ...updated.problem, who: updated.problem.who || pasteResults.who };
+        }
+        if (pasteResults.outcome) {
+          updated.problem = { ...updated.problem, outcome: updated.problem.outcome || pasteResults.outcome };
+        }
+        
+        // Update context fields
+        if (pasteResults.segments) {
+          updated.context = { ...updated.context, segments: updated.context.segments || pasteResults.segments };
+        }
+        if (pasteResults.workflow) {
+          updated.context = { ...updated.context, workflow: updated.context.workflow || pasteResults.workflow };
+        }
+        
+        // Append arrays
+        if (pasteResults.assumptions && Array.isArray(pasteResults.assumptions)) {
+          updated.assumptions = [...updated.assumptions, ...pasteResults.assumptions];
+        }
+        if (pasteResults.questions && Array.isArray(pasteResults.questions)) {
+          updated.questions = [...updated.questions, ...pasteResults.questions];
+        }
+        if (pasteResults.actions && Array.isArray(pasteResults.actions)) {
+          const newActions = pasteResults.actions.map(text => ({ id: generateId(), text, completed: false }));
+          updated.actions = [...(updated.actions || []), ...newActions];
+        }
+        
+        // Append notes
+        if (pasteResults.notes) {
+          const notesText = Array.isArray(pasteResults.notes) 
+            ? pasteResults.notes.map(n => `• ${n}`).join('\n')
+            : pasteResults.notes;
+          updated.notes = updated.notes 
+            ? `${updated.notes}\n\n${notesText}` 
+            : notesText;
+        }
+        
+        return updated;
+      })
+    );
+    
+    setPasteModalOpen(false);
+    setPastedText("");
+    setPasteResults(null);
+    alert("Applied extracted information to task");
   };
 
   const handleExportJson = () => {
     if (!active) return;
-    const json = JSON.stringify(active, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${active.name.replace(/\s+/g, "-").toLowerCase()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleShareLink = () => {
-    if (!active) return;
     const encoded = btoa(JSON.stringify(active));
-    const baseUrl = window.location.origin + window.location.pathname;
-    const url = `${baseUrl}?shared=${encoded}`;
-    setShareUrl(url);
-    setShowShareModal(true);
+    const url = `${window.location.origin}${window.location.pathname}?data=${encoded}`;
+    navigator.clipboard.writeText(url).then(() => {
+      alert("Share link copied to clipboard! Anyone with this link can view this analysis.");
+    }).catch(() => {
+      // Fallback: download as JSON if clipboard fails
+      const json = JSON.stringify(active, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl; a.download = `${active.name.replace(/\s+/g, "-").toLowerCase()}.json`;
+      a.click(); URL.revokeObjectURL(blobUrl);
+    });
   };
 
-  const copyShareLink = async () => {
+  const handleSaveToGist = async () => {
+    if (!active || !githubToken) {
+      alert("Please enter your GitHub token first.");
+      return;
+    }
+    
+    setGistLoading(true);
     try {
-      await navigator.clipboard.writeText(shareUrl);
-    } catch (err) {
-      console.error('Failed to copy:', err);
+      const gist = await saveToGist(active, githubToken);
+      // Update analysis with gist ID
+      setAnalyses(prev => prev.map(a => 
+        a.id === activeId ? { ...a, gistId: gist.id } : a
+      ));
+      navigator.clipboard.writeText(gist.html_url);
+      alert(`Saved to GitHub Gist!\n\nGist URL copied to clipboard:\n${gist.html_url}\n\nGist ID (for loading): ${gist.id}`);
+    } catch (error) {
+      alert(`Failed to save to GitHub Gist:\n${error.message}\n\nMake sure your token has 'gist' scope.`);
+    } finally {
+      setGistLoading(false);
     }
   };
 
-  if (!active) return null;
+  const handleLoadFromGist = async () => {
+    if (!loadGistId.trim()) {
+      alert("Please enter a Gist ID.");
+      return;
+    }
+    
+    setGistLoading(true);
+    try {
+      const data = await loadFromGist(loadGistId.trim(), githubToken);
+      const migrated = migrateAnalysis(data);
+      setAnalyses(prev => [...prev, migrated]);
+      setActiveId(migrated.id);
+      setLoadGistId("");
+      alert(`Loaded analysis: ${migrated.name}`);
+    } catch (error) {
+      alert(`Failed to load from GitHub Gist:\n${error.message}\n\nMake sure the Gist ID is correct and the gist is accessible.`);
+    } finally {
+      setGistLoading(false);
+    }
+  };
 
+  // Audio analysis handlers
+  const handleStartRecording = async () => {
+    setAudioProcessing(true);
+    setTranscript("");
+    const success = await startAudioRecording((finalTranscript, interimTranscript) => {
+      setTranscript(prev => {
+        const newTranscript = prev + finalTranscript;
+        return newTranscript;
+      });
+    });
+    if (success) {
+      setIsRecording(true);
+    } else {
+      alert("Failed to start recording. Please check microphone permissions.");
+    }
+    setAudioProcessing(false);
+  };
+
+  const handleStopRecording = async () => {
+    setAudioProcessing(true);
+    await stopAudioRecording();
+    setIsRecording(false);
+    setAudioProcessing(false);
+  };
+
+  const handleFileUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setAudioProcessing(true);
+    alert("Audio file transcription from uploads is not yet supported in the browser. Please use the recording feature or manually enter your content.");
+    setAudioProcessing(false);
+  };
+
+  const handleAnalyzeTranscript = async () => {
+    if (!transcript) return;
+    
+    setAudioProcessing(true);
+    
+    if (githubAIKey) {
+      // Analyze with GitHub AI
+      const suggestions = await analyzeWithGitHub(transcript, githubAIKey);
+      if (suggestions) {
+        setAiSuggestions(suggestions);
+        // Initialize all sections as selected
+        const selected = {};
+        Object.keys(suggestions).forEach(key => { selected[key] = true; });
+        setSelectedSections(selected);
+      } else {
+        alert("Failed to analyze with OpenAI. Please check your API key.");
+      }
+    } else {
+      // Manual mode - put transcript in notes
+      setAiSuggestions({ notes: transcript });
+      setSelectedSections({ notes: true });
+    }
+    
+    setAudioProcessing(false);
+  };
+
+  const handleToggleSection = (section) => {
+    setSelectedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  const handleUpdateSuggestion = (section, content) => {
+    setAiSuggestions(prev => ({ ...prev, [section]: content }));
+  };
+
+  const handleApplyAudioChanges = () => {
+    Object.entries(aiSuggestions).forEach(([section, content]) => {
+      if (selectedSections[section] !== false && content.trim()) {
+        updateActive(section, content);
+      }
+    });
+    
+    // Reset audio modal state
+    setAudioModalOpen(false);
+    setTranscript("");
+    setAiSuggestions({});
+    setSelectedSections({});
+    setIsRecording(false);
+  };
+
+  const handleCloseAudioModal = () => {
+    if (isRecording) {
+      handleStopRecording();
+    }
+    setAudioModalOpen(false);
+    setTranscript("");
+    setAiSuggestions({});
+    setSelectedSections({});
+  };
+
+  if (!active) return null;
   const completion = getCompletion(active);
+  const { filled: tasksFilled, total: tasksTotal } = getTaskCount(active);
+
+  // Count analyses per phase for the filter
+  const phaseCounts = useMemo(() => {
+    const counts = { All: analyses.length, Untagged: 0 };
+    VERSION_PHASES.forEach((v) => { counts[v] = 0; });
+    analyses.forEach((a) => {
+      if (!a.phase) counts.Untagged++;
+      else if (counts[a.phase] !== undefined) counts[a.phase]++;
+    });
+    return counts;
+  }, [analyses]);
 
   const renderSection = () => {
     switch (activeSection) {
-      case "overview": return <OverviewSection data={active.overview} onChange={(v) => updateActive("overview", v)} />;
+      case "overview": return <OverviewSection 
+        data={active.overview} 
+        phase={active.phase} 
+        jiraTicket={active.jiraTicket} 
+        secureMode={active.secureMode || false}
+        audioModalOpen={audioModalOpen}
+        pasteModalOpen={pasteModalOpen}
+        onChange={(v) => updateActive("overview", v)} 
+        onPhaseChange={updatePhase} 
+        onJiraTicketChange={(v) => updateActive("jiraTicket", v)}
+        onSecureModeChange={(v) => updateActive("secureMode", v)}
+        onOpenAudioModal={() => setAudioModalOpen(true)}
+        onOpenPasteModal={() => setPasteModalOpen(true)}
+      />;
       case "problem": return <ProblemSection data={active.problem} onChange={(v) => updateActive("problem", v)} />;
       case "context": return <UserContextSection data={active.context} onChange={(v) => updateActive("context", v)} />;
       case "assumptions": return <AssumptionsSection data={active.assumptions} onChange={(v) => updateActive("assumptions", v)} />;
       case "edges": return <EdgeCasesSection data={active.edges} onChange={(v) => updateActive("edges", v)} />;
       case "scope": return <ScopeSection data={active.scope} onChange={(v) => updateActive("scope", v)} />;
       case "questions": return <QuestionsSection data={active.questions} onChange={(v) => updateActive("questions", v)} />;
+      case "mapping": return <MappingSection data={active.mapping || { figmaUrl: "" }} onChange={(v) => updateActive("mapping", v)} />;
+      case "notes": return <NotesSection data={active.notes} onChange={(v) => updateActive("notes", v)} />;
       case "summary": return <SummarySection data={active.summary} onChange={(v) => updateActive("summary", v)} />;
       default: return null;
     }
   };
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-800" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+    <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+      {/* Security Warning Banner - Only shown when current analysis has secure mode */}
+      {active?.secureMode && (
+        <div className="bg-emerald-600 dark:bg-emerald-700 text-white px-6 py-2 text-sm font-medium flex items-center justify-center gap-2 shrink-0">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+          </svg>
+          <span>SECURE MODE ENABLED: Data encrypted, external services disabled.</span>
+        </div>
+      )}
+      
+      {/* Main Content Area */}
+      <div className="flex flex-1 min-h-0">
       {/* Sidebar */}
       {sidebarOpen && (
-        <div className="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0">
-          <div className="px-4 py-4 border-b border-slate-100">
-            <div className="flex items-center justify-between mb-3">
-              <h1 className="text-sm font-bold text-slate-800 tracking-tight">Product Design Requirement Analyzer</h1>
-              <button onClick={() => setSidebarOpen(false)} className="text-slate-400 hover:text-slate-600 text-sm">◀</button>
+        <div className="w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col shrink-0">
+          <div className="px-4 py-4 border-b border-slate-100 dark:border-slate-700">
+            <div className="flex items-center justify-between">
+              <h1 className="text-sm font-bold text-slate-800 dark:text-slate-100 tracking-tight">Design task manager</h1>
+              <button onClick={() => setSidebarOpen(false)} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300" title="Close sidebar">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
             </div>
-            <button
-              onClick={createNew}
-              className="w-full py-2 text-sm font-medium text-white bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors"
-            >
-              + New Analysis
-            </button>
           </div>
+
+          {/* Phase filter */}
+          <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-700">
+            <div className="flex gap-1 flex-wrap">
+              {["All", ...VERSION_PHASES.filter((v) => v !== "Cut"), "Untagged"].map((f) => {
+                const count = phaseCounts[f] || 0;
+                if (f !== "All" && count === 0) return null;
+                const isActive = phaseFilter === f;
+                const colors = VERSION_COLORS[f];
+                return (
+                  <button
+                    key={f}
+                    onClick={() => setPhaseFilter(f)}
+                    className={`px-2 py-0.5 text-xs rounded-full transition-colors ${
+                      isActive
+                        ? colors
+                          ? `${colors.bg} ${colors.text} font-medium`
+                          : "bg-slate-800 text-white font-medium"
+                        : "text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
+                    }`}
+                  >
+                    {f} {count > 0 && <span className="opacity-60">{count}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="flex-1 overflow-y-auto py-2">
-            {analyses.map((a) => {
+            {filteredAnalyses.map((a) => {
               const comp = getCompletion(a);
               return (
                 <div
                   key={a.id}
                   onClick={() => { setActiveId(a.id); setActiveSection("overview"); }}
                   className={`mx-2 mb-1 px-3 py-2.5 rounded-lg cursor-pointer group transition-colors ${
-                    a.id === activeId ? "bg-slate-100" : "hover:bg-slate-50"
+                    a.id === activeId ? "bg-slate-100 dark:bg-slate-700" : "hover:bg-slate-50 dark:hover:bg-slate-700/50"
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-slate-700 truncate flex-1">{a.name || "Untitled"}</span>
-                    {analyses.length > 1 && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); deleteAnalysis(a.id); }}
-                        className="text-slate-300 hover:text-red-400 opacity-0 group-hover:opacity-100 text-sm ml-2"
-                      >×</button>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <div className="flex-1 h-1 bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-slate-400 rounded-full transition-all" style={{ width: `${comp}%` }} />
+                  {a.jiraTicket && (
+                    <div className="text-[10px] font-semibold tracking-wider text-slate-400 dark:text-slate-500 uppercase mb-1">
+                      {a.jiraTicket}
                     </div>
-                    <span className="text-xs text-slate-400">{comp}%</span>
+                  )}
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate flex-1">{a.name || "Untitled Design Task"}</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {a.phase && <VersionBadge version={a.phase} size="xs" />}
+                      {analyses.length > 1 && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); deleteAnalysis(a.id); }}
+                          className="text-slate-300 dark:text-slate-600 hover:text-red-400 dark:hover:text-red-500 opacity-0 group-hover:opacity-100 text-sm ml-1"
+                        >×</button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mt-1.5">
+                    <div className="h-1 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                      <div className="h-full bg-slate-400 dark:bg-slate-500 rounded-full transition-all" style={{ width: `${comp}%` }} />
+                    </div>
                   </div>
                 </div>
               );
             })}
+            {filteredAnalyses.length === 0 && (
+              <div className="px-4 py-6 text-center text-xs text-slate-400 dark:text-slate-500">
+                No analyses in this phase.
+              </div>
+            )}
           </div>
-          <div className="px-4 py-3 border-t border-slate-100 space-y-2">
-            <button onClick={handleShareLink} className="w-full py-1.5 text-xs font-medium text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors">
-              Share Link
+          <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-700 space-y-3">
+            {/* New Design Task Button */}
+            <button
+              onClick={createNew}
+              className="w-full py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-300 dark:hover:border-slate-500 transition-colors font-medium"
+            >
+              + New design task
             </button>
-            <button onClick={handleExportMd} className="w-full py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg hover:border-slate-300 transition-colors">
-              Export as Markdown
+            
+            {/* Export Options Section */}
+            {syncOptionsExpanded && (
+              <div className="space-y-2 mb-2">
+                {/* GitHub Gist Sync - Only when current analysis doesn't have secure mode */}
+                {!active?.secureMode && gistExpanded && (
+                  <div className="space-y-2 mb-3 pb-3 border-b border-slate-200 dark:border-slate-700">
+                    {/* GitHub Token */}
+                    <div>
+                      <label className="text-sm text-slate-700 dark:text-slate-200 mb-1 block font-medium">GitHub Token</label>
+                      <input
+                        type="password"
+                        placeholder="ghp_..."
+                        value={githubToken}
+                        onChange={(e) => setGithubToken(e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400 dark:focus:ring-slate-500"
+                      />
+                      <a
+                        href="https://github.com/settings/tokens/new?description=Requirement%20Analyzer&scopes=gist"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline mt-1 inline-block"
+                      >
+                        Create token
+                      </a>
+                    </div>
+                    
+                    {/* Save to Gist */}
+                    <button
+                      onClick={handleSaveToGist}
+                      disabled={gistLoading || !githubToken}
+                      className="w-full py-2.5 text-sm text-white bg-slate-800 dark:bg-slate-600 hover:bg-slate-700 dark:hover:bg-slate-500 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                    >
+                      {gistLoading ? "Saving..." : active?.gistId ? "Update Gist" : "Save to Gist"}
+                    </button>
+                    
+                    {/* Load from Gist */}
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Gist ID"
+                        value={loadGistId}
+                        onChange={(e) => setLoadGistId(e.target.value)}
+                        className="flex-1 px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400 dark:focus:ring-slate-500"
+                      />
+                      <button
+                        onClick={handleLoadFromGist}
+                        disabled={gistLoading || !loadGistId.trim()}
+                        className="px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white border border-slate-300 dark:border-slate-600 rounded hover:border-slate-400 dark:hover:border-slate-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                      >
+                        Load
+                      </button>
+                    </div>
+                  </div>
+                )}
+                
+                {!active?.secureMode && (
+                  <button
+                    onClick={() => setGistExpanded(!gistExpanded)}
+                    className="w-full py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-300 dark:hover:border-slate-500 transition-colors flex items-center justify-center gap-1"
+                  >
+                    GitHub Sync {gistExpanded ? "⌄" : "⌃"}
+                  </button>
+                )}
+                
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleImportMd}
+                  accept=".md,.markdown,.txt"
+                  className="hidden"
+                />
+                <button 
+                  onClick={() => fileInputRef.current?.click()} 
+                  className="w-full py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-300 dark:hover:border-slate-500 transition-colors"
+                >
+                  Import Markdown
+                </button>
+                <button onClick={handleExportMd} className="w-full py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-300 dark:hover:border-slate-500 transition-colors">
+                  Export as Markdown
+                </button>
+              </div>
+            )}
+            
+            {/* Secure Mode Toggle */}
+            <button
+              onClick={() => setSecureMode(!secureMode)}
+              className={`w-full py-2.5 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                secureMode
+                  ? "bg-emerald-600 dark:bg-emerald-700 text-white hover:bg-emerald-700 dark:hover:bg-emerald-600"
+                  : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600"
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z\" />
+              </svg>
+              {secureMode ? "Secure Mode ON" : "Secure Mode OFF"}
             </button>
-            <button onClick={handleExportJson} className="w-full py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg hover:border-slate-300 transition-colors">
-              Export as JSON
+            
+            {/* Export Options Toggle Button */}
+            <button
+              onClick={() => setSyncOptionsExpanded(!syncOptionsExpanded)}
+              className="w-full py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-300 dark:hover:border-slate-500 transition-colors flex items-center justify-center gap-1"
+            >
+              Export options {syncOptionsExpanded ? "⌄" : "⌃"}
             </button>
           </div>
         </div>
@@ -632,40 +3084,91 @@ export default function RequirementAnalyzer() {
       {/* Main Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
-        <div className="bg-white border-b border-slate-200 px-6 py-3">
+        <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-6 py-3">
           <div className="flex items-center gap-3 mb-3">
             {!sidebarOpen && (
-              <button onClick={() => setSidebarOpen(true)} className="text-slate-400 hover:text-slate-600 text-sm mr-1">▶</button>
+              <button onClick={() => setSidebarOpen(true)} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 mr-1" title="Show sidebar">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
             )}
             <input
-              className="text-lg font-semibold text-slate-800 bg-transparent border-none outline-none focus:ring-0 flex-1 px-0"
-              value={active.name}
-              onChange={(e) => updateName(e.target.value)}
+              className="text-lg font-semibold text-slate-800 dark:text-slate-100 bg-transparent border-none outline-none focus:ring-0 flex-1 px-0"
+              value={active.name} onChange={(e) => updateName(e.target.value)}
               placeholder="Analysis name..."
             />
             <div className="flex items-center gap-2 shrink-0">
+              {active.phase && <VersionBadge version={active.phase} />}
               <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${completion === 100 ? "bg-emerald-500" : "bg-slate-400"}`}
                   style={{ width: `${completion}%` }}
                 />
               </div>
-              <span className="text-xs text-slate-400 w-8">{completion}%</span>
+              <span className="text-xs text-slate-400 w-10">{tasksFilled}/{tasksTotal}</span>
+              <button
+                onClick={() => setDarkMode(!darkMode)}
+                className="p-2 text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-300 dark:hover:border-slate-500 transition-colors"
+                title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+              >
+                {darkMode ? (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                  </svg>
+                )}
+              </button>
+              <button
+                onClick={() => setActionsPanelOpen(!actionsPanelOpen)}
+                className="text-slate-400 hover:text-slate-800 ml-2 transition-colors flex items-center gap-1.5"
+                title="Toggle actions panel"
+              >
+                {actionsPanelOpen ? (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                ) : (
+                  <>
+                    <span className="text-sm">Actions</span>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                    </svg>
+                  </>
+                )}
+              </button>
             </div>
           </div>
           {/* Section nav */}
           <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
-            {SECTIONS.map((s) => (
-              <Pill
-                key={s.id}
-                active={activeSection === s.id}
-                onClick={() => setActiveSection(s.id)}
-                completion={getSectionCompletion(active, s.id)}
-              >
-                <span className="mr-1 opacity-60">{s.icon}</span>
-                {s.label}
-              </Pill>
-            ))}
+            {SECTIONS.map((s) => {
+              const getCountText = () => {
+                if (s.id === "assumptions") {
+                  const open = active.assumptions.filter(a => a.status === "Unvalidated" || a.status === "Needs Research").length;
+                  return `${open}`;
+                }
+                if (s.id === "questions") {
+                  const open = active.questions.filter(q => q.status === "Open").length;
+                  return `${open}`;
+                }
+                return undefined;
+              };
+              return (
+                <Pill
+                  key={s.id}
+                  active={activeSection === s.id}
+                  onClick={() => setActiveSection(s.id)}
+                  completion={s.id !== "assumptions" && s.id !== "questions" ? getSectionCompletion(active, s.id) : undefined}
+                  count={getCountText()}
+                >
+                  <span className="mr-1 opacity-60">{s.icon}</span>
+                  {s.label}
+                </Pill>
+              );
+            })}
           </div>
         </div>
 
@@ -677,42 +3180,78 @@ export default function RequirementAnalyzer() {
         </div>
       </div>
 
-      {/* Share Link Modal */}
-      {showShareModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-8" onClick={() => setShowShareModal(false)}>
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-              <h3 className="font-semibold text-slate-800">Share Analysis</h3>
-              <button onClick={() => setShowShareModal(false)} className="text-slate-400 hover:text-slate-600 text-xl">×</button>
+      {/* Actions Panel */}
+      {actionsPanelOpen && (
+        <div className="w-80 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col shrink-0">
+          <div className="px-4 py-4 border-b border-slate-100 dark:border-slate-700">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 tracking-tight">Actions</h2>
+              <button onClick={() => setActionsPanelOpen(false)} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300" title="Close actions panel">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
             </div>
-            <div className="p-6">
-              <p className="text-sm text-slate-600 mb-4">
-                Share this link with your colleague. They'll get a copy of this analysis that they can edit independently.
-              </p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={shareUrl}
-                  className="flex-1 px-3 py-2 text-xs border border-slate-200 rounded-lg bg-slate-50 font-mono"
-                  onClick={(e) => e.target.select()}
-                />
-                <button
-                  onClick={copyShareLink}
-                  className="px-4 py-2 text-sm font-medium bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors whitespace-nowrap"
-                >
-                  Copy Link
-                </button>
-              </div>
-              <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                <p className="text-xs text-amber-800">
-                  <strong>Note:</strong> Each person will have their own copy. Changes won't sync automatically. For real-time collaboration, consider using Firebase.
-                </p>
-              </div>
-            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 py-4">
+            <ActionsSection data={active.actions || []} onChange={(v) => updateActive("actions", v)} />
           </div>
         </div>
       )}
+
+      {/* Audio Analysis Modal - Only when current analysis doesn't have secure mode */}
+      {!active?.secureMode && (
+        <AudioAnalysisModal
+          isOpen={audioModalOpen}
+          onClose={handleCloseAudioModal}
+          isRecording={isRecording}
+          transcript={transcript}
+          audioProcessing={audioProcessing}
+          aiSuggestions={aiSuggestions}
+          selectedSections={selectedSections}
+          onToggleSection={handleToggleSection}
+          onUpdateSuggestion={handleUpdateSuggestion}
+          onStartRecording={handleStartRecording}
+          onStopRecording={handleStopRecording}
+          onFileUpload={handleFileUpload}
+          onAnalyze={handleAnalyzeTranscript}
+          onApply={handleApplyAudioChanges}
+          githubAIKey={githubAIKey}
+          onSetGitHubAIKey={setGitHubAIKey}
+        />
+      )}
+
+      {/* Paste & Analyze Modal - Only when current analysis doesn't have secure mode */}
+      {!active?.secureMode && (
+        <PasteAnalyzeModal
+          isOpen={pasteModalOpen}
+          onClose={() => {
+            setPasteModalOpen(false);
+            setPastedText("");
+            setPasteResults(null);
+          }}
+          pastedText={pastedText}
+          onTextChange={setPastedText}
+          onAnalyze={handlePasteAnalyze}
+          analyzing={pasteAnalyzing}
+          results={pasteResults}
+          onApply={handleApplyPasteResults}
+          githubAIKey={githubAIKey}
+          onSetGitHubAIKey={setGitHubAIKey}
+        />
+      )}
+
+      {/* Import Markdown Modal */}
+      <ImportMarkdownModal
+        isOpen={importModalOpen}
+        onClose={() => {
+          setImportModalOpen(false);
+          setImportedMarkdown("");
+        }}
+        onImportNew={handleImportNew}
+        onImportExisting={handleImportExisting}
+        hasActiveTask={!!active}
+      />
 
       {/* Markdown Export Modal */}
       {showExport && (
@@ -720,7 +3259,7 @@ export default function RequirementAnalyzer() {
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-full flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h3 className="font-semibold text-slate-800">Markdown Export</h3>
-              <button onClick={() => setShowExport(false)} className="text-slate-400 hover:text-slate-600">×</button>
+              <button onClick={() => setShowExport(false)} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">×</button>
             </div>
             <div className="flex-1 overflow-y-auto p-6">
               <pre className="text-xs text-slate-700 whitespace-pre-wrap font-mono bg-slate-50 p-4 rounded-lg border border-slate-100">
@@ -738,6 +3277,7 @@ export default function RequirementAnalyzer() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
