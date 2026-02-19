@@ -819,7 +819,7 @@ function exportToMarkdown(a) {
     if (q.answer?.trim()) lines.push(`   - ${q.answer}`);
   });
 
-  h("Design actions");
+  h("Action Items");
   if (!a.actions || a.actions.length === 0) lines.push("*No actions logged yet.*");
   else a.actions.forEach((item, i) => lines.push(`${i + 1}. [${item.completed ? "X" : " "}] ${item.text}`));
 
@@ -918,7 +918,8 @@ function importFromMarkdown(markdown) {
         });
         break;
         
-      case "Design actions":
+      case "Design actions":  // Legacy support for old exports
+      case "Action Items":
         buffer.forEach(line => {
           const match = line.match(/^\d+\.\s*\[([^\]]+)\]\s*(.+)/);
           if (match) {
@@ -1856,7 +1857,7 @@ const ActionsSection = ({ data, onChange }) => {
       )}
       {data.length === 0 && (
         <div className="text-center py-8 text-slate-400 dark:text-slate-500 text-sm border border-dashed border-slate-200 dark:border-slate-600 rounded-lg mb-4">
-          No design actions yet. Add tasks below.
+          No action items yet. Add tasks below.
         </div>
       )}
       <div className="space-y-2 mb-4">
@@ -2109,15 +2110,36 @@ const PasteAnalyzeModal = ({
   
   // Helper to get existing content for a field
   const getExistingContent = (fieldName) => {
-    if (!activeAnalysis) return '';
+    console.log('[PASTE MODAL] getExistingContent called:', fieldName);
+    console.log('[PASTE MODAL] activeAnalysis:', activeAnalysis);
+    
+    if (!activeAnalysis) {
+      console.log('[PASTE MODAL] No activeAnalysis!');
+      return '';
+    }
+    
+    console.log('[PASTE MODAL] activeAnalysis.overview:', activeAnalysis.overview);
+    console.log('[PASTE MODAL] activeAnalysis.problem:', activeAnalysis.problem);
     
     // Map field names to analysis structure
-    if (fieldName === 'featureName') return activeAnalysis.overview?.featureName || '';
+    if (fieldName === 'featureName') {
+      const value = activeAnalysis.overview?.featureName || '';
+      console.log('[PASTE MODAL] featureName value:', value);
+      return value;
+    }
     if (fieldName === 'date') return activeAnalysis.overview?.date || '';
     if (fieldName === 'requestor') return activeAnalysis.overview?.requestor || '';
     if (fieldName === 'origin') return activeAnalysis.overview?.origin || '';
-    if (fieldName === 'description') return activeAnalysis.overview?.description || '';
-    if (fieldName === 'problem') return activeAnalysis.problem?.problem || '';
+    if (fieldName === 'description') {
+      const value = activeAnalysis.overview?.description || '';
+      console.log('[PASTE MODAL] description value:', value);
+      return value;
+    }
+    if (fieldName === 'problem') {
+      const value = activeAnalysis.problem?.problem || '';
+      console.log('[PASTE MODAL] problem value:', value);
+      return value;
+    }
     if (fieldName === 'who') return activeAnalysis.problem?.who || '';
     if (fieldName === 'outcome') return activeAnalysis.problem?.outcome || '';
     if (fieldName === 'segments') return activeAnalysis.context?.segments || '';
@@ -2131,6 +2153,15 @@ const PasteAnalyzeModal = ({
     const existingContent = getExistingContent(fieldName);
     const hasExisting = existingContent && existingContent.trim().length > 0;
     const mergeMode = mergeModes[fieldName] || 'replace';
+    
+    console.log('[FIELD DISPLAY]', {
+      fieldName,
+      existingContent,
+      hasExisting,
+      'existingContent.length': existingContent?.length,
+      'value.length': value?.length,
+      mergeMode
+    });
     
     return (
       <div className={`border border-${sectionColor}-200 dark:border-${sectionColor}-800 rounded-lg p-3 bg-${sectionColor}-50 dark:bg-${sectionColor}-900/20`}>
@@ -4122,7 +4153,7 @@ export default function RequirementAnalyzer() {
         <div className="w-80 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col shrink-0">
           <div className="px-4 py-4 border-b border-slate-100 dark:border-slate-700">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 tracking-tight">Design actions</h2>
+              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 tracking-tight">Action Items</h2>
               <button onClick={() => setActionsPanelOpen(false)} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300" title="Close actions panel">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
