@@ -5757,7 +5757,7 @@ Key principles:
 
 Your ONLY focus is helping with product discovery tasks:
 - Identifying customer opportunities, needs, and pain points related to the current outcome
-- Suggesting rows for the discovery table (opportunities, prioritization, solutions, experiments)
+- Adding rows directly to the discovery table (opportunities, prioritization, solutions, experiments)
 - Helping structure and refine the Opportunity Solution Tree
 - Advising on discovery research methods and interview questions
 - Analysing patterns across discovery data
@@ -5778,10 +5778,26 @@ ${JSON.stringify(outcomeContext.discoveryTable, null, 2)}
 Opportunity tree:
 ${JSON.stringify(outcomeContext.opportunityTree, null, 2)}` : "No outcome selected yet."}
 
-When you want to suggest adding rows to the discovery table, include a JSON block:
+When the user asks you to identify opportunities or add to the discovery table, respond with your explanation followed by a JSON block. The rows will be AUTOMATICALLY added to the table:
 \`\`\`json
-{"proposals": [{"section": "discoveryTable", "field": "_addRow", "value": {"col_opp": "opportunity text", "col_rprio": "High/Medium/Low", "col_sol": "potential solution"}, "reason": "<brief reason>"}]}
+{"proposals": [{"section": "discoveryTable", "field": "_addRow", "value": {"col_opp": "opportunity text", "col_rprio": "High/Medium/Low", "col_sol": "potential solution", "col_about": "brief description"}, "reason": "why this opportunity matters"}]}
 \`\`\`
+
+Available columns:
+- col_opp: Opportunity (customer need/pain point)
+- col_rprio: Research ranked priority (High/Medium/Low)
+- col_iprio: Internal priority level
+- col_obj: Business objectives this addresses
+- col_about: Brief description/context
+- col_impact: Impact area
+- col_dk: Evidence from DK market interviews
+- col_se: Evidence from SE market interviews
+- col_proto: Findings from prototype test
+- col_b2b: B2B admin portal context
+- col_sol: Solution ideas
+- col_exp: Experiment suggestions
+
+Fill in the most relevant columns based on what you know. When you suggest opportunities, always include at least col_opp and col_rprio. The rows will be added automatically - you don't need to ask the user to apply them.
 
 Be concise and actionable. Respond in the same language the user writes in.`;
     } else {
@@ -5841,6 +5857,38 @@ Be concise and actionable. Respond in the same language the user writes in.`;
           const parsed = JSON.parse(jsonMatch[1]);
           if (parsed.proposals && Array.isArray(parsed.proposals)) {
             proposals = parsed.proposals.map(p => ({ ...p, applied: false }));
+            
+            // Auto-apply discovery table rows
+            if (appMode === "discovery") {
+              proposals.forEach((p, idx) => {
+                if (p.field === '_addRow' && p.section === 'discoveryTable' && activeOutcome) {
+                  const currentTable = activeOutcome.discoveryTable || { columns: [], rows: [] };
+                  const newRow = { 
+                    id: generateId(), 
+                    cells: { 
+                      col_opp: p.value.col_opp || "",
+                      col_rprio: p.value.col_rprio || "",
+                      col_iprio: p.value.col_iprio || "",
+                      col_obj: p.value.col_obj || "",
+                      col_about: p.value.col_about || "",
+                      col_impact: p.value.col_impact || "",
+                      col_dk: p.value.col_dk || "",
+                      col_se: p.value.col_se || "",
+                      col_proto: p.value.col_proto || "",
+                      col_b2b: p.value.col_b2b || "",
+                      col_sol: p.value.col_sol || "",
+                      col_exp: p.value.col_exp || ""
+                    } 
+                  };
+                  const updatedTable = {
+                    ...currentTable,
+                    rows: [...(currentTable.rows || []), newRow]
+                  };
+                  updateOutcomeField(activeOutcome.id, 'discoveryTable', updatedTable);
+                  proposals[idx] = { ...p, applied: true };
+                }
+              });
+            }
           }
           // Remove the JSON block from display text
           displayContent = content.replace(/```json\s*\n?[\s\S]*?\n?```/, '').trim();
@@ -5885,6 +5933,33 @@ Be concise and actionable. Respond in the same language the user writes in.`;
           const newItem = { id: generateId(), ...value };
           updateActive(section, [...currentArray, newItem]);
         }
+      } else if (field === '_addRow' && section === 'discoveryTable') {
+        // Add row to discovery table (outcome-scoped)
+        if (activeOutcome) {
+          const currentTable = activeOutcome.discoveryTable || { columns: [], rows: [] };
+          const newRow = { 
+            id: generateId(), 
+            cells: { 
+              col_opp: value.col_opp || "",
+              col_rprio: value.col_rprio || "",
+              col_iprio: value.col_iprio || "",
+              col_obj: value.col_obj || "",
+              col_about: value.col_about || "",
+              col_impact: value.col_impact || "",
+              col_dk: value.col_dk || "",
+              col_se: value.col_se || "",
+              col_proto: value.col_proto || "",
+              col_b2b: value.col_b2b || "",
+              col_sol: value.col_sol || "",
+              col_exp: value.col_exp || ""
+            } 
+          };
+          const updatedTable = {
+            ...currentTable,
+            rows: [...(currentTable.rows || []), newRow]
+          };
+          updateOutcomeField(activeOutcome.id, 'discoveryTable', updatedTable);
+        }
       } else if (active[section] && typeof active[section] === 'object' && !Array.isArray(active[section])) {
         // Update a field within an object section
         updateActive(section, { ...active[section], [field]: value });
@@ -5898,7 +5973,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
       newProposals[proposalIndex] = { ...proposal, applied: true };
       return { ...msg, proposals: newProposals };
     }));
-  }, [active, updateActive]);
+  }, [active, activeOutcome, updateActive, updateOutcomeField]);
 
   const createNew = () => {
     const newA = createBlankAnalysis(appMode === "discovery" ? "Untitled Discovery" : "Untitled Design Task", appMode);
