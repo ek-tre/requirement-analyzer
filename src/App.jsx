@@ -204,11 +204,7 @@ const TRANSLATIONS = {
       codeRefs: "Code References",
       design: "Design System",
       research: "User Research",
-      wireframe: "Structure",
-      discoveryTable: "Opportunity Solutions",
-      opportunityTree: "Diagram",
-      sourceDocuments: "Research Data",
-      feedback: "Feedback"
+      wireframe: "Structure"
     },
     fields: {
       featureName: "Feature Name",
@@ -270,11 +266,7 @@ const TRANSLATIONS = {
       codeRefs: "Kode Referencer",
       design: "Design System",
       research: "Brugerundersøgelse",
-      wireframe: "Struktur",
-      discoveryTable: "Muligheder",
-      opportunityTree: "Diagram",
-      sourceDocuments: "Forskningsdata",
-      feedback: "Feedback"
+      wireframe: "Struktur"
     },
     fields: {
       featureName: "Funktionsnavn",
@@ -336,11 +328,7 @@ const TRANSLATIONS = {
       codeRefs: "Kodreferenser",
       design: "Design System",
       research: "Användarforskning",
-      wireframe: "Struktur",
-      discoveryTable: "Möjligheter",
-      opportunityTree: "Diagram",
-      sourceDocuments: "Forskningsdata",
-      feedback: "Feedback"
+      wireframe: "Struktur"
     },
     fields: {
       featureName: "Funktionsnamn",
@@ -388,28 +376,31 @@ const TRANSLATIONS = {
 };
 
 const SECTIONS = [
-  { id: "overview", label: "Overview" },
-  { id: "problem", label: "Problem & Purpose" },
-  { id: "context", label: "User Context" },
-  { id: "assumptions", label: "Assumptions" },
-  { id: "edges", label: "Edge Cases" },
-  { id: "scope", label: "Scope & Versions" },
-  { id: "acceptance", label: "Acceptance Criteria" },
-  { id: "questions", label: "Open Questions" },
-  { id: "notes", label: "Notes" },
-  { id: "research", label: "User Research" },
-  { id: "designRefs", label: "Design References" },
-  { id: "codeRefs", label: "Code References" },
-  { id: "design", label: "Design System" },
-  { id: "wireframe", label: "Structure" },
-  { id: "summary", label: "Summary" },
+  { id: "overview", label: "Overview", icon: "◉" },
+  { id: "problem", label: "Problem & Purpose", icon: "◎" },
+  { id: "context", label: "User Context", icon: "◈" },
+  { id: "assumptions", label: "Assumptions", icon: "◇" },
+  { id: "edges", label: "Edge Cases", icon: "◆" },
+  { id: "scope", label: "Scope & Versions", icon: "◫" },
+  { id: "acceptance", label: "Acceptance Criteria", icon: "◈" },
+  { id: "questions", label: "Open Questions", icon: "◻" },
+  { id: "notes", label: "Notes", icon: "◐" },
+  { id: "research", label: "User Research", icon: "◎" },
+  { id: "designRefs", label: "Design References", icon: "◱" },
+  { id: "codeRefs", label: "Code References", icon: "◇" },
+  { id: "design", label: "Design System", icon: "◆" },
+  { id: "wireframe", label: "Structure", icon: "◧" },
+  { id: "summary", label: "Summary", icon: "◼" },
 ];
 
 const DISCOVERY_SECTIONS = [
-  { id: "sourceDocuments", label: "Research Data" },
-  { id: "feedback", label: "Feedback" },
-  { id: "discoveryTable", label: "Opportunity Solutions" },
-  { id: "opportunityTree", label: "Diagram" },
+  { id: "discoveryTable", label: "Discovery Research", icon: "◫" },
+  { id: "opportunityTree", label: "Opportunity Solution Tree", icon: "◆" },
+];
+
+const DISCOVERY_SECTIONS_RIGHT = [
+  { id: "sourceDocuments", label: "Source Documents", icon: "◉" },
+  { id: "feedback", label: "Tre.se Feedback", icon: "◈" },
 ];
 
 const ORIGIN_OPTIONS = [
@@ -1432,12 +1423,10 @@ const VersionBadge = ({ version, size = "sm" }) => {
   );
 };
 
-const Pill = ({ active, onClick, children, completion, count, highlight }) => (
+const Pill = ({ active, onClick, children, completion, count }) => (
   <button
     onClick={onClick}
     className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-all whitespace-nowrap ${
-      highlight ? "border-2 border-slate-400 dark:border-slate-500" : ""
-    } ${
       active ? "bg-slate-800 dark:bg-slate-600 text-white font-medium" : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
     }`}
   >
@@ -4989,34 +4978,28 @@ const AudioAnalysisModal = ({
 // --- Mode Switcher (Segmented Control) ---
 const ModeSwitch = ({ mode, onChange }) => {
   return (
-    <div className="inline-flex items-center gap-6">
+    <div className="inline-flex items-center bg-slate-100 dark:bg-slate-700 rounded-lg p-1 gap-1">
       <button
         onClick={() => onChange("discovery")}
-        className={`pb-2 text-base font-medium transition-colors whitespace-nowrap relative ${
+        className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
           mode === "discovery"
-            ? "text-slate-900 dark:text-slate-100"
-            : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
+            ? "bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-sm"
+            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
         }`}
         aria-pressed={mode === "discovery"}
       >
         Discovery
-        {mode === "discovery" && (
-          <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900 dark:bg-slate-100" />
-        )}
       </button>
       <button
         onClick={() => onChange("design-specs")}
-        className={`pb-2 text-base font-medium transition-colors whitespace-nowrap relative ${
+        className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
           mode === "design-specs"
-            ? "text-slate-900 dark:text-slate-100"
-            : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
+            ? "bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-sm"
+            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
         }`}
         aria-pressed={mode === "design-specs"}
       >
         Design Specs
-        {mode === "design-specs" && (
-          <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900 dark:bg-slate-100" />
-        )}
       </button>
     </div>
   );
@@ -5360,10 +5343,6 @@ export default function RequirementAnalyzer() {
   const [showArchivedOutcomes, setShowArchivedOutcomes] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState(null);
   
-  // Dropdown menu state
-  const [openMenu, setOpenMenu] = useState(null); // Stores ID of project/outcome with open menu
-  const menuRef = useRef(null);
-  
   // AI Chat state (ephemeral — cleared on reload and task switch)
   const [chatMessages, setChatMessages] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
@@ -5448,24 +5427,6 @@ export default function RequirementAnalyzer() {
     }
     localStorage.setItem("darkMode", darkMode);
   }, [darkMode]);
-
-  // Close dropdown menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (openMenu && menuRef.current && !menuRef.current.contains(event.target)) {
-        // Check if click is on a menu trigger button
-        const isMenuButton = event.target.closest('[data-menu-trigger]');
-        if (!isMenuButton) {
-          setOpenMenu(null);
-        }
-      }
-    };
-    
-    if (openMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [openMenu]);
 
   // Load from URL share link on mount
   useEffect(() => {
@@ -5997,48 +5958,6 @@ Be concise and actionable. Respond in the same language the user writes in.`;
       })
     );
   }, [activeId]);
-
-  const archiveProject = useCallback((projectId) => {
-    setAnalyses((prev) =>
-      prev.map((a) => {
-        if (a.id !== projectId) return a;
-        return { ...a, status: "archived", updatedAt: new Date().toISOString() };
-      })
-    );
-    // If archiving the active project, switch to first non-archived one
-    if (projectId === activeId) {
-      const nextActive = analyses.find((a) => a.id !== projectId && a.status !== "archived");
-      if (nextActive) {
-        setActiveId(nextActive.id);
-      }
-    }
-  }, [activeId, analyses]);
-
-  const designOutcome = useCallback((projectId, outcomeId) => {
-    const project = analyses.find((a) => a.id === projectId);
-    if (!project) return;
-    
-    const outcome = (project.outcomes || []).find((o) => o.id === outcomeId);
-    if (!outcome) return;
-
-    // Create a new design-specs project from the outcome
-    const newDesignProject = createBlankAnalysis(outcome.name, "design-specs");
-    
-    // Copy discovery data to design project
-    newDesignProject.notes = outcome.discoveryTable 
-      ? JSON.stringify(outcome.discoveryTable, null, 2) 
-      : "";
-    newDesignProject.summary = outcome.opportunityTree 
-      ? `Opportunity Solution Tree:\n${JSON.stringify(outcome.opportunityTree, null, 2)}` 
-      : "";
-    
-    // Add the new project and switch to it
-    setAnalyses((prev) => [newDesignProject, ...prev]);
-    setActiveId(newDesignProject.id);
-    setAppMode("design-specs");
-    localStorage.setItem("appMode", "design-specs");
-    setActiveSection("overview");
-  }, [analyses]);
 
   const updateOutcomeField = useCallback((outcomeId, field, value) => {
     setAnalyses((prev) =>
@@ -7181,21 +7100,12 @@ Be concise and actionable. Respond in the same language the user writes in.`;
         <div className="flex flex-col gap-3">
           {/* Row 1: Sidebar toggle + Name + Mode Switcher + controls */}
           <div className="flex items-center gap-4">
-            {appMode === "design-specs" && (
-              <button onClick={() => setSidebarOpen(!sidebarOpen)} className={`p-1.5 rounded-md transition-colors ${sidebarOpen ? 'bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-200' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600'}`} title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <rect x="3" y="3" width="7" height="18" rx="1" strokeWidth={2} />
-                  <rect x="14" y="3" width="7" height="18" rx="1" strokeWidth={2} />
-                </svg>
-              </button>
-            )}
-            {!sidebarOpen && appMode === "discovery" && (
-              <button onClick={() => setSidebarOpen(true)} className="p-1.5 rounded-md transition-colors bg-slate-100 dark:bg-slate-700 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600" title="Show sidebar">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-            )}
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} className={`p-1.5 rounded-md transition-colors ${sidebarOpen ? 'bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-200' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600'}`} title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <rect x="3" y="3" width="7" height="18" rx="1" strokeWidth={2} />
+                <rect x="14" y="3" width="7" height="18" rx="1" strokeWidth={2} />
+              </svg>
+            </button>
             <ModeSwitch 
               mode={appMode} 
               onChange={(newMode) => {
@@ -7247,86 +7157,63 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                 </button>
                 <button
                   onClick={() => { setActionsPanelOpen(!actionsPanelOpen); if (!actionsPanelOpen && appMode === "discovery") setRightPanelTab("chat"); }}
-                  className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
-                    actionsPanelOpen 
-                      ? "bg-slate-800 dark:bg-slate-600 text-white hover:bg-slate-700 dark:hover:bg-slate-500" 
-                      : "text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-700"
-                  }`}
+                  className="p-2 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-300 dark:hover:border-slate-500 transition-colors"
                   title={actionsPanelOpen ? "Close panel" : "Open panel"}
                 >
-                  {actionsPanelOpen ? (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  ) : (
-                    <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                      </svg>
-                      <span>{appMode === "discovery" ? "Discovery AI" : "Open Actions"}</span>
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                      </svg>
-                    </>
-                  )}
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <rect x="3" y="3" width="7" height="18" rx="1" strokeWidth={2} />
+                    <rect x="14" y="3" width="7" height="18" rx="1" strokeWidth={2} opacity={actionsPanelOpen ? 1 : 0.3} />
+                  </svg>
                 </button>
             </div>
           </div>
           {/* Row 2: Section nav pills */}
           <div className="flex gap-1 flex-wrap items-center">
-            {appMode === "discovery" ? (
-              // Discovery mode: unified tab design with rounded background for active
+            {(appMode === "discovery" ? DISCOVERY_SECTIONS : SECTIONS).map((s) => {
+              const lang = active.language || "en";
+              const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
+              const getCountText = () => {
+                if (s.id === "assumptions") {
+                  const open = active.assumptions.filter(a => a.status === "Unvalidated" || a.status === "Needs Research").length;
+                  return `${open}`;
+                }
+                if (s.id === "questions") {
+                  const open = active.questions.filter(q => q.status === "Open").length;
+                  return `${open}`;
+                }
+                return undefined;
+              };
+              return (
+                <Pill
+                  key={s.id}
+                  active={activeSection === s.id}
+                  onClick={() => setActiveSection(s.id)}
+                  completion={s.id !== "assumptions" && s.id !== "questions" ? getSectionCompletion(active, s.id) : undefined}
+                  count={getCountText()}
+                >
+                  <span className="mr-1 opacity-60">{s.icon}</span>
+                  {t.sections[s.id] || s.label}
+                </Pill>
+              );
+            })}
+            {appMode === "discovery" && (
               <>
-                {DISCOVERY_SECTIONS.map((s) => {
+                <div className="ml-auto" />
+                {DISCOVERY_SECTIONS_RIGHT.map((s) => {
                   const lang = active.language || "en";
                   const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
-                  const isActive = activeSection === s.id;
-                  
                   return (
-                    <button
+                    <Pill
                       key={s.id}
+                      active={activeSection === s.id}
                       onClick={() => setActiveSection(s.id)}
-                      className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                        isActive
-                          ? "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
-                          : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                      }`}
                     >
+                      <span className="mr-1 opacity-60">{s.icon}</span>
                       {t.sections[s.id] || s.label}
-                    </button>
+                    </Pill>
                   );
                 })}
               </>
-            ) : (
-              // Design mode: use Pill components
-              SECTIONS.map((s) => {
-                const lang = active.language || "en";
-                const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
-                const getCountText = () => {
-                  if (s.id === "assumptions") {
-                    const open = active.assumptions.filter(a => a.status === "Unvalidated" || a.status === "Needs Research").length;
-                    return `${open}`;
-                  }
-                  if (s.id === "questions") {
-                    const open = active.questions.filter(q => q.status === "Open").length;
-                    return `${open}`;
-                  }
-                  return undefined;
-                };
-                
-                return (
-                  <Pill
-                    key={s.id}
-                    active={activeSection === s.id}
-                    onClick={() => setActiveSection(s.id)}
-                    completion={s.id !== "assumptions" && s.id !== "questions" ? getSectionCompletion(active, s.id) : undefined}
-                    count={getCountText()}
-                    highlight={s.id === "summary"}
-                  >
-                    {t.sections[s.id] || s.label}
-                  </Pill>
-                );
-              })
             )}
           </div>
         </div>
@@ -7338,11 +7225,10 @@ Be concise and actionable. Respond in the same language the user writes in.`;
       {sidebarOpen && (
         <div className="w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col shrink-0">
 
-          {/* Phase filter - only in design mode */}
-          {appMode === "design-specs" && (
-            <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-700">
-              <div className="flex gap-1 flex-wrap">
-                {["All", ...VERSION_PHASES.filter((v) => v !== "Cut"), "Untagged"].map((f) => {
+          {/* Phase filter */}
+          <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-700">
+            <div className="flex gap-1 flex-wrap">
+              {["All", ...VERSION_PHASES.filter((v) => v !== "Cut"), "Untagged"].map((f) => {
                 const count = phaseCounts[f] || 0;
                 if (f !== "All" && count === 0) return null;
                 const isActive = phaseFilter === f;
@@ -7363,36 +7249,14 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                   </button>
                 );
               })}
-              </div>
             </div>
-          )}
-
-          {/* Projects header with toggles */}
-          {appMode === "discovery" && (
-            <div className="px-3 py-3 border-b border-slate-100 dark:border-slate-700">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <svg className="w-4 h-4 text-slate-500 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <rect x="3" y="3" width="7" height="18" rx="1" strokeWidth={2} />
-                    <rect x="14" y="3" width="7" height="18" rx="1" strokeWidth={2} />
-                  </svg>
-                  <span className="text-[10px] font-semibold tracking-wider text-slate-500 dark:text-slate-400 uppercase">PROJECTS</span>
-                </div>
-                <button onClick={() => setSidebarOpen(false)} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 p-1" title="Hide sidebar">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <rect x="3" y="3" width="7" height="18" rx="1" strokeWidth={2} />
-                    <rect x="14" y="3" width="7" height="18" rx="1" strokeWidth={2} />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          )}
+          </div>
 
           <div className="flex-1 overflow-y-auto py-2">
             {filteredAnalyses.map((a) => {
               const comp = getCompletion(a);
               return (
-                <div key={a.id} className="relative">
+                <div key={a.id}>
                 <div
                   onClick={() => { 
                     if (a.id !== activeId) {
@@ -7440,22 +7304,8 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                           </svg>
                         </div>
                       )}
-                      {a.phase && appMode === "design-specs" && <VersionBadge version={a.phase} size="xs" />}
-                      {appMode === "discovery" && (
-                        <button
-                          data-menu-trigger
-                          onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === `project-${a.id}` ? null : `project-${a.id}`); }}
-                          className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 p-1 ml-1"
-                          title="Project actions"
-                        >
-                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                            <circle cx="12" cy="5" r="2" />
-                            <circle cx="12" cy="12" r="2" />
-                            <circle cx="12" cy="19" r="2" />
-                          </svg>
-                        </button>
-                      )}
-                      {appMode === "design-specs" && analyses.length > 1 && (
+                      {a.phase && <VersionBadge version={a.phase} size="xs" />}
+                      {analyses.length > 1 && (
                         <button
                           onClick={(e) => { e.stopPropagation(); deleteAnalysis(a.id); }}
                           className="text-slate-300 dark:text-slate-600 hover:text-red-400 dark:hover:text-red-500 opacity-0 group-hover:opacity-100 text-sm ml-1"
@@ -7465,134 +7315,31 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                   </div>
                 </div>
 
-                {/* Project dropdown menu */}
-                {appMode === "discovery" && openMenu === `project-${a.id}` && (
-                  <div 
-                    ref={menuRef}
-                    className="absolute z-50 mt-1 ml-2 w-56 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      onClick={() => { setOutcomeWizardOpen(true); setOutcomeWizardStep(1); setOutcomeWizardName(""); setOutcomeWizardConfirmed(false); setOpenMenu(null); }}
-                      className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                    >
-                      New outcome
-                    </button>
-                    {(a.outcomes || []).some((o) => o.status === "archived") && (
-                      <button
-                        onClick={() => { setShowArchivedOutcomes(!showArchivedOutcomes); setOpenMenu(null); }}
-                        className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                      >
-                        {showArchivedOutcomes ? "Hide" : "Show"} archived outcomes ({(a.outcomes || []).filter((o) => o.status === "archived").length})
-                      </button>
-                    )}
-                    {a.outcomes && a.outcomes.length > 0 && a.activeOutcomeId && (
-                      <>
-                        <button
-                          onClick={() => { archiveOutcome(a.activeOutcomeId); setOpenMenu(null); }}
-                          className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                        >
-                          Archive current outcome
-                        </button>
-                        <button
-                          onClick={() => { designOutcome(a.id, a.activeOutcomeId); setOpenMenu(null); }}
-                          className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                        >
-                          Design it
-                        </button>
-                      </>
-                    )}
-                    <button
-                      onClick={() => { archiveProject(a.id); setOpenMenu(null); }}
-                      className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                    >
-                      Archive project
-                    </button>
-                    <div className="border-t border-slate-200 dark:border-slate-600 my-1" />
-                    <button
-                      onClick={() => { deleteAnalysis(a.id); setOpenMenu(null); }}
-                      className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                )}
-
                 {/* Outcome sub-list for discovery mode */}
                 {appMode === "discovery" && a.id === activeId && (
                   <div className="mx-2 mb-1">
                     {/* Active outcomes */}
                     {(a.outcomes || []).filter((o) => o.status === "active").map((o) => (
-                      <div key={o.id} className="relative">
-                        <div
-                          onClick={(e) => { e.stopPropagation(); switchOutcome(o.id); }}
-                          className={`ml-4 px-2.5 py-1.5 rounded-md cursor-pointer group/outcome flex items-center gap-2 transition-colors ${
-                            o.id === a.activeOutcomeId
-                              ? "bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700"
-                              : "hover:bg-slate-50 dark:hover:bg-slate-700/50"
-                          }`}
+                      <div
+                        key={o.id}
+                        onClick={(e) => { e.stopPropagation(); switchOutcome(o.id); }}
+                        className={`ml-4 px-2.5 py-1.5 rounded-md cursor-pointer group/outcome flex items-center gap-2 transition-colors ${
+                          o.id === a.activeOutcomeId
+                            ? "bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700"
+                            : "hover:bg-slate-50 dark:hover:bg-slate-700/50"
+                        }`}
+                      >
+                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${o.id === a.activeOutcomeId ? "bg-indigo-500" : "bg-slate-300 dark:bg-slate-500"}`} />
+                        <span className={`text-xs flex-1 truncate ${o.id === a.activeOutcomeId ? "font-medium text-indigo-700 dark:text-indigo-300" : "text-slate-600 dark:text-slate-400"}`}>{o.name}</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); archiveOutcome(o.id); }}
+                          className="text-slate-300 dark:text-slate-600 hover:text-amber-500 dark:hover:text-amber-400 opacity-0 group-hover/outcome:opacity-100 transition-opacity"
+                          title="Archive outcome"
                         >
-                          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${o.id === a.activeOutcomeId ? "bg-indigo-500" : "bg-slate-300 dark:bg-slate-500"}`} />
-                          <span className={`text-xs flex-1 truncate ${o.id === a.activeOutcomeId ? "font-medium text-indigo-700 dark:text-indigo-300" : "text-slate-600 dark:text-slate-400"}`}>{o.name}</span>
-                          <button
-                            data-menu-trigger
-                            onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === `outcome-${o.id}` ? null : `outcome-${o.id}`); }}
-                            className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 p-0.5"
-                            title="Outcome actions"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                              <circle cx="12" cy="5" r="2" />
-                              <circle cx="12" cy="12" r="2" />
-                              <circle cx="12" cy="19" r="2" />
-                            </svg>
-                          </button>
-                        </div>
-
-                        {openMenu === `outcome-${o.id}` && (
-                          <div 
-                            ref={menuRef}
-                            className="absolute z-50 mt-1 ml-16 w-56 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            onClick={() => { setOutcomeWizardOpen(true); setOutcomeWizardStep(1); setOutcomeWizardName(""); setOutcomeWizardConfirmed(false); setOpenMenu(null); }}
-                            className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                          >
-                            New outcome
-                          </button>
-                          <button
-                            onClick={() => { setShowArchivedOutcomes(!showArchivedOutcomes); setOpenMenu(null); }}
-                            className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                          >
-                            {showArchivedOutcomes ? "Hide" : "Show"} archived outcomes ({(a.outcomes || []).filter((o) => o.status === "archived").length})
-                          </button>
-                          <button
-                            onClick={() => { archiveOutcome(o.id); setOpenMenu(null); }}
-                            className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                          >
-                            Archive current outcome
-                          </button>
-                          <button
-                            onClick={() => { designOutcome(a.id, o.id); setOpenMenu(null); }}
-                            className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                          >
-                            Design it
-                          </button>
-                          <button
-                            onClick={() => { archiveProject(a.id); setOpenMenu(null); }}
-                            className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                          >
-                            Archive project
-                          </button>
-                          <div className="border-t border-slate-200 dark:border-slate-600 my-1" />
-                          <button
-                            onClick={() => { deleteAnalysis(a.id); setOpenMenu(null); }}
-                            className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                        )}
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                          </svg>
+                        </button>
                       </div>
                     ))}
 
@@ -7857,35 +7604,6 @@ Be concise and actionable. Respond in the same language the user writes in.`;
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {/* Outcome header for Discovery mode */}
-        {appMode === "discovery" && activeOutcome && (activeSection === "discoveryTable" || activeSection === "opportunityTree") && (
-          <div className="px-6 pt-6 pb-4">
-            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg px-6 py-4">
-              <div className="text-[10px] font-semibold tracking-wider text-amber-800 dark:text-amber-300 uppercase mb-2">OUTCOME</div>
-              <div className="text-lg font-medium text-amber-900 dark:text-amber-100">{activeOutcome.name}</div>
-            </div>
-            {/* Legend */}
-            <div className="flex items-center gap-4 mt-4 text-xs text-slate-600 dark:text-slate-400">
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-sm bg-purple-100 dark:bg-purple-900/30 border border-purple-300 dark:border-purple-700" />
-                <span>Outcome</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-sm bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700" />
-                <span>Opportunity</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-sm bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700" />
-                <span>Solution</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-sm bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700" />
-                <span>Experiment</span>
-              </div>
-            </div>
-          </div>
-        )}
-        
         {activeSection === "opportunityTree" || activeSection === "sourceDocuments" || activeSection === "feedback" ? (
           <div className="h-full p-6">{renderSection()}</div>
         ) : (
