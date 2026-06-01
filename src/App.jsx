@@ -204,7 +204,11 @@ const TRANSLATIONS = {
       codeRefs: "Code References",
       design: "Design System",
       research: "User Research",
-      wireframe: "Structure"
+      wireframe: "Structure",
+      discoveryTable: "Opportunity Solutions",
+      opportunityTree: "Diagram",
+      sourceDocuments: "Research Data",
+      feedback: "Feedback"
     },
     fields: {
       featureName: "Feature Name",
@@ -328,7 +332,11 @@ const TRANSLATIONS = {
       codeRefs: "Kodreferenser",
       design: "Design System",
       research: "Användarforskning",
-      wireframe: "Struktur"
+      wireframe: "Struktur",
+      discoveryTable: "Möjligheter",
+      opportunityTree: "Diagram",
+      sourceDocuments: "Forskningsdata",
+      feedback: "Feedback"
     },
     fields: {
       featureName: "Funktionsnamn",
@@ -394,13 +402,10 @@ const SECTIONS = [
 ];
 
 const DISCOVERY_SECTIONS = [
-  { id: "discoveryTable", label: "Discovery Research", icon: "◫" },
-  { id: "opportunityTree", label: "Opportunity Solution Tree", icon: "◆" },
-];
-
-const DISCOVERY_SECTIONS_RIGHT = [
-  { id: "sourceDocuments", label: "Source Documents", icon: "◉" },
-  { id: "feedback", label: "Tre.se Feedback", icon: "◈" },
+  { id: "sourceDocuments", label: "Research Data" },
+  { id: "feedback", label: "Feedback" },
+  { id: "discoveryTable", label: "Opportunity Solutions" },
+  { id: "opportunityTree", label: "Diagram" },
 ];
 
 const ORIGIN_OPTIONS = [
@@ -7173,51 +7178,59 @@ Be concise and actionable. Respond in the same language the user writes in.`;
           </div>
           {/* Row 2: Section nav pills */}
           <div className="flex gap-1 flex-wrap items-center">
-            {(appMode === "discovery" ? DISCOVERY_SECTIONS : SECTIONS).map((s) => {
-              const lang = active.language || "en";
-              const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
-              const getCountText = () => {
-                if (s.id === "assumptions") {
-                  const open = active.assumptions.filter(a => a.status === "Unvalidated" || a.status === "Needs Research").length;
-                  return `${open}`;
-                }
-                if (s.id === "questions") {
-                  const open = active.questions.filter(q => q.status === "Open").length;
-                  return `${open}`;
-                }
-                return undefined;
-              };
-              return (
-                <Pill
-                  key={s.id}
-                  active={activeSection === s.id}
-                  onClick={() => setActiveSection(s.id)}
-                  completion={s.id !== "assumptions" && s.id !== "questions" ? getSectionCompletion(active, s.id) : undefined}
-                  count={getCountText()}
-                >
-                  <span className="mr-1 opacity-60">{s.icon}</span>
-                  {t.sections[s.id] || s.label}
-                </Pill>
-              );
-            })}
-            {appMode === "discovery" && (
+            {appMode === "discovery" ? (
+              // Discovery mode: unified tabs with dark background for active
               <>
-                <div className="ml-auto" />
-                {DISCOVERY_SECTIONS_RIGHT.map((s) => {
+                {DISCOVERY_SECTIONS.map((s) => {
                   const lang = active.language || "en";
                   const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
+                  const isActive = activeSection === s.id;
+                  
                   return (
-                    <Pill
+                    <button
                       key={s.id}
-                      active={activeSection === s.id}
                       onClick={() => setActiveSection(s.id)}
+                      className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                        isActive
+                          ? "bg-slate-800 dark:bg-slate-700 text-white"
+                          : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                      }`}
                     >
-                      <span className="mr-1 opacity-60">{s.icon}</span>
                       {t.sections[s.id] || s.label}
-                    </Pill>
+                    </button>
                   );
                 })}
               </>
+            ) : (
+              // Design mode: use Pill components
+              SECTIONS.map((s) => {
+                const lang = active.language || "en";
+                const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
+                const getCountText = () => {
+                  if (s.id === "assumptions") {
+                    const open = active.assumptions.filter(a => a.status === "Unvalidated" || a.status === "Needs Research").length;
+                    return `${open}`;
+                  }
+                  if (s.id === "questions") {
+                    const open = active.questions.filter(q => q.status === "Open").length;
+                    return `${open}`;
+                  }
+                  return undefined;
+                };
+                
+                return (
+                  <Pill
+                    key={s.id}
+                    active={activeSection === s.id}
+                    onClick={() => setActiveSection(s.id)}
+                    completion={s.id !== "assumptions" && s.id !== "questions" ? getSectionCompletion(active, s.id) : undefined}
+                    count={getCountText()}
+                    highlight={s.id === "summary"}
+                  >
+                    {t.sections[s.id] || s.label}
+                  </Pill>
+                );
+              })
             )}
           </div>
         </div>
