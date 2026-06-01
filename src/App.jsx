@@ -7100,9 +7100,13 @@ Be concise and actionable. Respond in the same language the user writes in.`;
         <div className="flex flex-col gap-3">
           {/* Row 1: Sidebar toggle + Name + Mode Switcher + controls */}
           <div className="flex items-center gap-4">
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className={`p-1.5 rounded-md transition-colors ${sidebarOpen ? 'bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-200' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600'}`} title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}>
+            <button 
+              onClick={() => setSidebarOpen(!sidebarOpen)} 
+              className="p-2 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-300 dark:hover:border-slate-500 transition-colors" 
+              title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+            >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <rect x="3" y="3" width="7" height="18" rx="1" strokeWidth={2} />
+                <rect x="3" y="3" width="7" height="18" rx="1" strokeWidth={2} opacity={sidebarOpen ? 1 : 0.3} />
                 <rect x="14" y="3" width="7" height="18" rx="1" strokeWidth={2} />
               </svg>
             </button>
