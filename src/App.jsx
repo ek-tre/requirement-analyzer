@@ -5973,7 +5973,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
       newProposals[proposalIndex] = { ...proposal, applied: true };
       return { ...msg, proposals: newProposals };
     }));
-  }, [active, activeOutcome, updateActive, updateOutcomeField]);
+  }, [active, activeOutcome, updateActive]);
 
   const createNew = () => {
     const newA = createBlankAnalysis(appMode === "discovery" ? "Untitled Discovery" : "Untitled Design Task", appMode);
