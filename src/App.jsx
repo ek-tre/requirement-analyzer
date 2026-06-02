@@ -5347,6 +5347,13 @@ export default function RequirementAnalyzer() {
   const [outcomeWizardConfirmed, setOutcomeWizardConfirmed] = useState(false);
   const [showArchivedOutcomes, setShowArchivedOutcomes] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState(null);
+
+  const closeOutcomeWizard = useCallback(() => {
+    setOutcomeWizardOpen(false);
+    setOutcomeWizardStep(1);
+    setOutcomeWizardName("");
+    setOutcomeWizardConfirmed(false);
+  }, []);
   
   // AI Chat state (ephemeral — cleared on reload and task switch)
   const [chatMessages, setChatMessages] = useState([]);
@@ -7868,17 +7875,31 @@ Be concise and actionable. Respond in the same language the user writes in.`;
         </div>
       )}
 
-      {/* Outcome Creation Wizard Modal */}
+      {/* Outcome Creation Wizard Sheet */}
       {outcomeWizardOpen && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-8" onClick={() => setOutcomeWizardOpen(false)}>
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700">
-              <h3 className="font-semibold text-slate-800 dark:text-slate-200">
-                {outcomeWizardStep === 1 ? "New Outcome" : "Confirm New Outcome"}
-              </h3>
-              <button onClick={() => setOutcomeWizardOpen(false)} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 text-2xl leading-none">×</button>
+        <div className="fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={closeOutcomeWizard}
+          />
+          <div className="absolute inset-y-0 right-0 w-full max-w-[34rem] bg-white dark:bg-slate-800 shadow-2xl border-l border-slate-200 dark:border-slate-700 flex flex-col animate-in slide-in-from-right duration-200">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700 shrink-0">
+              <div>
+                <h3 className="font-semibold text-slate-800 dark:text-slate-200">
+                  {outcomeWizardStep === 1 ? "New Outcome" : "Confirm New Outcome"}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Create an outcome, review the scope, then generate only what is missing.</p>
+              </div>
+              <button onClick={closeOutcomeWizard} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 text-2xl leading-none">×</button>
             </div>
-            <div className="px-6 py-5">
+            <div className="px-6 py-5 overflow-y-auto flex-1">
+              <div className="flex items-center gap-2 mb-5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <span className={`h-2.5 w-2.5 rounded-full ${outcomeWizardStep === 1 ? "bg-indigo-600" : "bg-slate-300 dark:bg-slate-600"}`} />
+                <span>Step 1</span>
+                <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+                <span className={`h-2.5 w-2.5 rounded-full ${outcomeWizardStep === 2 ? "bg-indigo-600" : "bg-slate-300 dark:bg-slate-600"}`} />
+                <span>Step 2</span>
+              </div>
               {outcomeWizardStep === 1 && (
                 <div className="space-y-4">
                   <p className="text-sm text-slate-600 dark:text-slate-400">
@@ -7920,22 +7941,22 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                 </div>
               )}
             </div>
-            <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-700 flex justify-between">
-              {outcomeWizardStep === 2 && (
-                <button
-                  onClick={() => setOutcomeWizardStep(1)}
-                  className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
-                >
-                  Back
-                </button>
-              )}
-              <div className="ml-auto flex gap-2">
-                <button
-                  onClick={() => setOutcomeWizardOpen(false)}
-                  className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
-                >
-                  Cancel
-                </button>
+            <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-700 shrink-0 flex items-center justify-between gap-3 bg-white/90 dark:bg-slate-800/90 backdrop-blur">
+              <button
+                onClick={closeOutcomeWizard}
+                className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <div className="flex items-center gap-2 ml-auto">
+                {outcomeWizardStep === 2 && (
+                  <button
+                    onClick={() => setOutcomeWizardStep(1)}
+                    className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+                  >
+                    Back
+                  </button>
+                )}
                 {outcomeWizardStep === 1 && (
                   <button
                     onClick={() => setOutcomeWizardStep(2)}
@@ -7949,7 +7970,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                   <button
                     onClick={() => {
                       addOutcome(outcomeWizardName.trim());
-                      setOutcomeWizardOpen(false);
+                      closeOutcomeWizard();
                       setActiveSection("discoveryTable");
                     }}
                     disabled={!outcomeWizardConfirmed}
