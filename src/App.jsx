@@ -474,6 +474,125 @@ const isSeedDiscoveryProject = (analysis) => {
 const createSeedDiscoveryAnalysis = () => {
   const base = createBlankAnalysis(DEFAULT_DISCOVERY_PROJECT_NAME, "discovery");
   const outcomeId = `outcome_${generateId()}`;
+  
+  // Create seed discovery rows with IDs so we can reference them
+  const seedRows = [
+    {
+      id: `row_${generateId()}`,
+      cells: {
+        col_opp: "One-Step Access to Core Information",
+        col_rprio: "1",
+        col_iprio: "Now",
+        col_obj: "Reduce task completion time for daily admin workflows",
+        col_about: "Eliminate unnecessary drill-down by surfacing plan, number and SIM status in first view.",
+        col_impact: "High - affects daily repetitive checks and plan updates.",
+        col_dk: "Current portal hides subscription details behind multiple layers.",
+        col_se: "Users request direct visibility without deep navigation.",
+        col_proto: "Prototype feedback favored direct summary cards.",
+        col_b2b: "Prioritize a high-signal overview card on dashboard.",
+        col_sol: "",
+        col_sol_team: "Direct overview card on dashboard",
+        col_exp: "",
+        col_exp_team: "Interview 5 admins to validate dashboard value",
+      },
+    },
+    {
+      id: `row_${generateId()}`,
+      cells: {
+        col_opp: "Universal Search with Smart Filters",
+        col_rprio: "2",
+        col_iprio: "Next",
+        col_obj: "Reduce time-to-find for account and subscription lookups",
+        col_about: "Enable global search by number, name, account and cost center from all contexts.",
+        col_impact: "High - lowers time spent in support-oriented requests.",
+        col_dk: "Search currently requires moving across multiple pages.",
+        col_se: "Users ask for direct jump-to-account patterns.",
+        col_proto: "Concept testing showed lower navigation confusion.",
+        col_b2b: "Include faceted search with remembered filters.",
+        col_sol: "",
+        col_sol_team: "Global search bar with faceted filters",
+        col_exp: "",
+        col_exp_team: "Test search speed and filter accuracy with 3 power users",
+      },
+    },
+    {
+      id: `row_${generateId()}`,
+      cells: {
+        col_opp: "Bulk Operations for High-Volume Tasks",
+        col_rprio: "3",
+        col_iprio: "Next",
+        col_obj: "Enable efficient onboarding and offboarding at scale",
+        col_about: "Provide bulk create/edit/delete flows for SIM assignment and owner changes.",
+        col_impact: "Critical during onboarding and fleet migrations.",
+        col_dk: "Admins repeat the same tasks one subscription at a time.",
+        col_se: "Evidence supports role-based bulk permission controls.",
+        col_proto: "Testing indicated major time savings for power users.",
+        col_b2b: "Support CSV-assisted bulk actions with previews.",
+        col_sol: "",
+        col_sol_team: "Bulk edit flow with preview and confirmation",
+        col_exp: "",
+        col_exp_team: "Measure time savings for 10 bulk operations vs single updates",
+      },
+    },
+    {
+      id: `row_${generateId()}`,
+      cells: {
+        col_opp: "Real-Time Performance and System Response",
+        col_rprio: "4",
+        col_iprio: "Now",
+        col_obj: "Ensure sub-2 second response times for key workflows",
+        col_about: "Reduce page reload cycles and enable in-place updates.",
+        col_impact: "High - persistent latency blocks daily operations.",
+        col_dk: "Users report slow portal response in key workflows.",
+        col_se: "Upload and report actions often time out in peak hours.",
+        col_proto: "N/A in 2024 prototype",
+        col_b2b: "Track performance SLA inside admin tooling.",
+        col_sol: "",
+        col_sol_team: "Optimize API response times and caching strategy",
+        col_exp: "",
+        col_exp_team: "Load test peak usage and measure current bottlenecks",
+      },
+    },
+    {
+      id: `row_${generateId()}`,
+      cells: {
+        col_opp: "Role-Based Admin Access and Delegation",
+        col_rprio: "5",
+        col_iprio: "Later",
+        col_obj: "Support compliance and delegated admin management",
+        col_about: "Introduce granular role scopes for assistants and department admins.",
+        col_impact: "High for enterprise governance and distributed operations.",
+        col_dk: "Customers request full-access variants tied to role boundaries.",
+        col_se: "Need per cost-center permissions for assistants.",
+        col_proto: "Not included in 2024 design prototype.",
+        col_b2b: "Add role templates with auditable policy assignments.",
+        col_sol: "",
+        col_sol_team: "Role-based permission matrix with inheritance",
+        col_exp: "",
+        col_exp_team: "Validate role model with 2 enterprise customers",
+      },
+    },
+  ];
+
+  // Build OST opportunities from seed rows
+  const opportunities = seedRows.map((row) => ({
+    id: `opp_${generateId()}`,
+    text: row.cells.col_opp,
+    sourceRowId: row.id,
+    solutions: [
+      {
+        id: `sol_${generateId()}`,
+        text: row.cells.col_sol_team,
+        experiments: [
+          {
+            id: `exp_${generateId()}`,
+            text: row.cells.col_exp_team,
+          }
+        ]
+      }
+    ]
+  }));
+
   return {
     ...base,
     isSeedDiscoveryProject: true,
@@ -491,97 +610,11 @@ const createSeedDiscoveryAnalysis = () => {
         createdAt: new Date().toISOString(),
         discoveryTable: {
           columns: DEFAULT_DISCOVERY_COLUMNS,
-          rows: [
-            {
-              id: `row_${generateId()}`,
-              cells: {
-                col_opp: "One-Step Access to Core Information",
-                col_rprio: "1",
-                col_iprio: "Now",
-                col_obj: "Reduce task completion time for daily admin workflows",
-                col_about: "Eliminate unnecessary drill-down by surfacing plan, number and SIM status in first view.",
-                col_impact: "High - affects daily repetitive checks and plan updates.",
-                col_dk: "Current portal hides subscription details behind multiple layers.",
-                col_se: "Users request direct visibility without deep navigation.",
-                col_proto: "Prototype feedback favored direct summary cards.",
-                col_b2b: "Prioritize a high-signal overview card on dashboard.",
-                col_sol: "",
-                col_exp: "",
-              },
-            },
-            {
-              id: `row_${generateId()}`,
-              cells: {
-                col_opp: "Universal Search with Smart Filters",
-                col_rprio: "2",
-                col_iprio: "Next",
-                col_obj: "Reduce time-to-find for account and subscription lookups",
-                col_about: "Enable global search by number, name, account and cost center from all contexts.",
-                col_impact: "High - lowers time spent in support-oriented requests.",
-                col_dk: "Search currently requires moving across multiple pages.",
-                col_se: "Users ask for direct jump-to-account patterns.",
-                col_proto: "Concept testing showed lower navigation confusion.",
-                col_b2b: "Include faceted search with remembered filters.",
-                col_sol: "",
-                col_exp: "",
-              },
-            },
-            {
-              id: `row_${generateId()}`,
-              cells: {
-                col_opp: "Bulk Operations for High-Volume Tasks",
-                col_rprio: "3",
-                col_iprio: "Next",
-                col_obj: "Enable efficient onboarding and offboarding at scale",
-                col_about: "Provide bulk create/edit/delete flows for SIM assignment and owner changes.",
-                col_impact: "Critical during onboarding and fleet migrations.",
-                col_dk: "Admins repeat the same tasks one subscription at a time.",
-                col_se: "Evidence supports role-based bulk permission controls.",
-                col_proto: "Testing indicated major time savings for power users.",
-                col_b2b: "Support CSV-assisted bulk actions with previews.",
-                col_sol: "",
-                col_exp: "",
-              },
-            },
-            {
-              id: `row_${generateId()}`,
-              cells: {
-                col_opp: "Real-Time Performance and System Response",
-                col_rprio: "4",
-                col_iprio: "Now",
-                col_obj: "Ensure sub-2 second response times for key workflows",
-                col_about: "Reduce page reload cycles and enable in-place updates.",
-                col_impact: "High - persistent latency blocks daily operations.",
-                col_dk: "Users report slow portal response in key workflows.",
-                col_se: "Upload and report actions often time out in peak hours.",
-                col_proto: "N/A in 2024 prototype",
-                col_b2b: "Track performance SLA inside admin tooling.",
-                col_sol: "",
-                col_exp: "",
-              },
-            },
-            {
-              id: `row_${generateId()}`,
-              cells: {
-                col_opp: "Role-Based Admin Access and Delegation",
-                col_rprio: "5",
-                col_iprio: "Later",
-                col_obj: "Support compliance and delegated admin management",
-                col_about: "Introduce granular role scopes for assistants and department admins.",
-                col_impact: "High for enterprise governance and distributed operations.",
-                col_dk: "Customers request full-access variants tied to role boundaries.",
-                col_se: "Need per cost-center permissions for assistants.",
-                col_proto: "Not included in 2024 design prototype.",
-                col_b2b: "Add role templates with auditable policy assignments.",
-                col_sol: "",
-                col_exp: "",
-              },
-            },
-          ],
+          rows: seedRows,
         },
         opportunityTree: {
           outcome: { id: "outcome", text: DEFAULT_DISCOVERY_OUTCOME_NAME },
-          opportunities: [],
+          opportunities: opportunities,
         },
       },
     ],
@@ -650,7 +683,9 @@ const createGeneratedDiscoveryTable = (outcomeName) => ({
         col_proto: "",
         col_b2b: "",
         col_sol: "Task-focused dashboard and shortcuts",
+        col_sol_team: "Task-focused dashboard and shortcuts",
         col_exp: "Interview 5 admins and rank task frequency",
+        col_exp_team: "Interview 5 admins and rank task frequency",
       },
     },
     {
@@ -667,7 +702,9 @@ const createGeneratedDiscoveryTable = (outcomeName) => ({
         col_proto: "",
         col_b2b: "",
         col_sol: "Inline actions and bulk controls",
+        col_sol_team: "Inline actions and bulk controls",
         col_exp: "Measure completion time before and after prototype",
+        col_exp_team: "Measure completion time before and after prototype",
       },
     },
     {
@@ -684,7 +721,9 @@ const createGeneratedDiscoveryTable = (outcomeName) => ({
         col_proto: "",
         col_b2b: "",
         col_sol: "Status badges and activity timeline",
+        col_sol_team: "Status badges and activity timeline",
         col_exp: "Validate trust and clarity with usability testing",
+        col_exp_team: "Validate trust and clarity with usability testing",
       },
     },
   ],
@@ -5706,57 +5745,99 @@ export default function RequirementAnalyzer() {
   useEffect(() => {
     const loadData = async () => {
       console.log('[LOAD] Starting data load from API...');
+
+      const loadFromLocalFallback = async () => {
+        let saved = await secureStorage.getItem("requirementAnalyses");
+        if (!saved) saved = localStorage.getItem("requirementAnalyses");
+        if (!saved) return false;
+
+        const parsed = JSON.parse(saved);
+        const migrated = Array.isArray(parsed) ? parsed.map(migrateAnalysis) : [];
+        if (migrated.length === 0) return false;
+
+        setAnalyses(migrated);
+        if (!activeId || !migrated.find((a) => a.id === activeId)) {
+          setActiveId(migrated[0].id);
+        }
+        return true;
+      };
+
       try {
         const response = await fetch('/api/projects');
         if (response.ok) {
           const rows = await response.json();
           console.log('[LOAD] API returned', rows.length, 'projects');
           if (rows.length > 0) {
-            const projects = rows.map(r => migrateAnalysis(typeof r.data === 'string' ? JSON.parse(r.data) : r.data));
+            const projects = rows.map((r) =>
+              migrateAnalysis(typeof r.data === 'string' ? JSON.parse(r.data) : r.data)
+            );
             setAnalyses(projects);
-            if (!activeId || !projects.find(a => a.id === activeId)) {
+            if (!activeId || !projects.find((a) => a.id === activeId)) {
               setActiveId(projects[0].id);
             }
           } else {
-            console.log('[LOAD] No projects in DB, using defaults');
+            console.log('[LOAD] No projects in DB, trying local fallback');
+            const restored = await loadFromLocalFallback();
+            if (!restored) {
+              console.log('[LOAD] No local backup found, using defaults');
+            }
           }
         } else {
           console.warn('[LOAD] API error, falling back to localStorage');
-          let saved = await secureStorage.getItem("requirementAnalyses");
-          if (!saved) saved = localStorage.getItem("requirementAnalyses");
-          if (saved) {
-            const parsed = JSON.parse(saved);
-            const migrated = Array.isArray(parsed) ? parsed.map(migrateAnalysis) : [];
-            if (migrated.length > 0) {
-              setAnalyses(migrated);
-              if (!activeId || !migrated.find(a => a.id === activeId)) {
-                setActiveId(migrated[0].id);
-              }
-            }
-          }
+          await loadFromLocalFallback();
         }
       } catch (error) {
-        console.error("[LOAD] Failed to load data:", error);
+        console.error('[LOAD] Failed to load data:', error);
         try {
-          let saved = localStorage.getItem("requirementAnalyses");
-          if (saved) {
-            const parsed = JSON.parse(saved);
-            const migrated = Array.isArray(parsed) ? parsed.map(migrateAnalysis) : [];
-            if (migrated.length > 0) {
-              setAnalyses(migrated);
-              if (!activeId || !migrated.find(a => a.id === activeId)) {
-                setActiveId(migrated[0].id);
-              }
-            }
-          }
-        } catch (e) { /* ignore */ }
+          await loadFromLocalFallback();
+        } catch (e) {
+          // ignore
+        }
       } finally {
         console.log('[LOAD] Load complete, setting dataLoaded = true');
         setDataLoaded(true);
       }
     };
+
     loadData();
   }, []); // Only run on mount
+
+  // Persist analyses after load: local fallback + secure storage + server sync.
+  useEffect(() => {
+    if (!dataLoaded) return;
+
+    const persist = async () => {
+      try {
+        if (hasSecureAnalysis) {
+          await secureStorage.setItem("requirementAnalyses", JSON.stringify(analyses));
+          localStorage.removeItem("requirementAnalyses");
+        } else {
+          localStorage.setItem("requirementAnalyses", JSON.stringify(analyses));
+          secureStorage.removeItem("requirementAnalyses");
+        }
+      } catch (error) {
+        console.error('[SAVE] Failed to persist locally:', error);
+      }
+
+      try {
+        await fetch('/api/projects', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projects: analyses.map((project) => ({
+              id: project.id,
+              name: project.name || 'Untitled',
+              data: project,
+            })),
+          }),
+        });
+      } catch (error) {
+        console.warn('[SAVE] API sync failed, local copy remains available:', error);
+      }
+    };
+
+    persist();
+  }, [analyses, dataLoaded, hasSecureAnalysis]);
 
   // Enforce a stable discovery baseline when stale browser-local snapshots exist.
   useEffect(() => {
@@ -6418,9 +6499,99 @@ Be concise and actionable. Respond in the same language the user writes in.`;
     setAnalyses((prev) =>
       prev.map((a) => {
         if (a.id !== activeId) return a;
-        const newOutcomes = (a.outcomes || []).map((o) =>
-          o.id === outcomeId ? { ...o, [field]: value } : o
-        );
+        const newOutcomes = (a.outcomes || []).map((o) => {
+          if (o.id !== outcomeId) return o;
+
+          if (field !== "opportunityTree") {
+            return { ...o, [field]: value };
+          }
+
+          const incomingTree =
+            value && typeof value === "object"
+              ? value
+              : { outcome: { id: "outcome", text: o.name }, opportunities: [] };
+
+          const tableColumns =
+            Array.isArray(o.discoveryTable?.columns) && o.discoveryTable.columns.length > 0
+              ? o.discoveryTable.columns
+              : DEFAULT_DISCOVERY_COLUMNS;
+          const existingRows = Array.isArray(o.discoveryTable?.rows) ? o.discoveryTable.rows : [];
+          const existingRowsById = new Map(existingRows.map((row) => [row.id, row]));
+          const existingRowsByOppText = new Map(
+            existingRows.map((row) => [String(row?.cells?.col_opp || "").trim().toLowerCase(), row]).filter(([key]) => key)
+          );
+          const emptyCells = tableColumns.reduce((acc, col) => ({ ...acc, [col.id]: "" }), {});
+
+          const normalizedOpportunities = (Array.isArray(incomingTree.opportunities) ? incomingTree.opportunities : []).map((opp) => {
+            const hasSourceRowId = typeof opp?.sourceRowId === "string" && opp.sourceRowId;
+            const rowIdFromOppId =
+              typeof opp?.id === "string" && opp.id.startsWith("opp_")
+                ? opp.id.replace("opp_", "row_")
+                : null;
+            const rowByText = existingRowsByOppText.get(String(opp?.text || "").trim().toLowerCase());
+
+            const sourceRowId = hasSourceRowId
+              ? opp.sourceRowId
+              : existingRowsById.has(rowIdFromOppId)
+                ? rowIdFromOppId
+                : rowByText?.id || `row_${generateId()}`;
+
+            return {
+              ...opp,
+              sourceRowId,
+            };
+          });
+
+          const treeRowsById = new Map(normalizedOpportunities.map((opp) => [opp.sourceRowId, opp]));
+          const nextRows = existingRows.map((existingRow) => {
+            const matchingOpp = treeRowsById.get(existingRow.id);
+            if (!matchingOpp) {
+              return existingRow;
+            }
+
+            const existingCells = existingRow?.cells && typeof existingRow.cells === "object"
+              ? existingRow.cells
+              : emptyCells;
+
+            const solutions = Array.isArray(matchingOpp.solutions) ? matchingOpp.solutions : [];
+            const solutionText = solutions
+              .map((sol) => (typeof sol?.text === "string" ? sol.text.trim() : ""))
+              .filter(Boolean)
+              .join("\n");
+            const experimentText = solutions
+              .flatMap((sol) => (Array.isArray(sol?.experiments) ? sol.experiments : []))
+              .map((exp) => (typeof exp?.text === "string" ? exp.text.trim() : ""))
+              .filter(Boolean)
+              .join("\n");
+
+            return {
+              id: existingRow.id,
+              cells: {
+                ...emptyCells,
+                ...existingCells,
+                col_opp: typeof matchingOpp.text === "string" ? matchingOpp.text : existingCells.col_opp,
+                col_sol: solutionText || existingCells.col_sol,
+                col_sol_team: solutionText || existingCells.col_sol_team,
+                col_exp: experimentText || existingCells.col_exp,
+                col_exp_team: experimentText || existingCells.col_exp_team,
+              },
+            };
+          });
+
+          const nextTree = {
+            ...incomingTree,
+            opportunities: normalizedOpportunities,
+          };
+
+          return {
+            ...o,
+            opportunityTree: nextTree,
+            discoveryTable: {
+              columns: tableColumns,
+              rows: nextRows,
+            },
+          };
+        });
         return { ...a, outcomes: newOutcomes, updatedAt: new Date().toISOString() };
       })
     );
@@ -7572,9 +7743,9 @@ Be concise and actionable. Respond in the same language the user writes in.`;
         return <DiscoveryTableSection data={activeOutcome.discoveryTable} outcomeName={activeOutcome.name} onChange={(v) => { updateOutcomeField(activeOutcome.id, "discoveryTable", v); syncTableToOST(v); }} />;
       }
       case "discoveryResearch":
-        return activeResearchTab === "feedback" ? <FeedbackSection /> : <DocumentsSection />;
+        return activeResearchTab === "feedback" ? <FeedbackSection /> : <DocumentsSection opportunities={activeOutcome?.opportunityTree?.opportunities || []} />;
       case "opportunityTree": return null;
-      case "sourceDocuments": return <DocumentsSection />;
+      case "sourceDocuments": return <DocumentsSection opportunities={activeOutcome?.opportunityTree?.opportunities || []} />;
       case "feedback": return <FeedbackSection />;
       default: return null;
     }
