@@ -1,750 +1,428 @@
-import { useState, useCallback, useEffect, useRef } from "react";
-import { Tldraw, createShapeId, DefaultColorStyle, toRichText, renderPlaintextFromRichText } from "tldraw";
+import { useMemo, useState } from "react";
 
-// Layout constants
 const NODE_WIDTH = 220;
-const NODE_HEIGHT = 80;
-const HORIZONTAL_GAP = 40;
-const VERTICAL_GAP = 200;
+const NODE_HEIGHT = 84;
+const HORIZONTAL_GAP = 56;
+const OUTCOME_Y = 32;
+const OPPORTUNITY_Y = 190;
+const SOLUTION_Y = 350;
+const EXPERIMENT_Y = 510;
 
-// Color mapping for node types
-const NODE_COLORS = {
-  outcome: { bg: "#f3e8ff", border: "#a855f7", text: "#6b21a8", tldraw: "violet" },
-  opportunity: { bg: "#fef3c7", border: "#f59e0b", text: "#92400e", tldraw: "yellow" },
-  solution: { bg: "#dcfce7", border: "#22c55e", text: "#166534", tldraw: "green" },
-  experiment: { bg: "#e0f2fe", border: "#0ea5e9", text: "#075985", tldraw: "blue" },
+const NODE_STYLES = {
+  outcome: {
+    bg: "#f3e8ff",
+    border: "#a855f7",
+    text: "#6b21a8",
+    title: "Outcome",
+  },
+  opportunity: {
+    bg: "#fef3c7",
+    border: "#f59e0b",
+    text: "#92400e",
+    title: "Opportunity",
+  },
+  solution: {
+    bg: "#dcfce7",
+    border: "#22c55e",
+    text: "#166534",
+    title: "Solution",
+  },
+  experiment: {
+    bg: "#e0f2fe",
+    border: "#0ea5e9",
+    text: "#075985",
+    title: "Experiment",
+  },
 };
 
-// Generate tldraw shapes + arrows from tree data
-function treeDataToShapes(treeData, positions) {
-  const shapes = [];
-  const bindings = [];
+const EMPTY_TREE = {
+  outcome: { id: "outcome", text: "Desired Outcome" },
+  opportunities: [],
+};
 
-  if (!treeData || !treeData.outcome) return { shapes, bindings };
+function normalizeTreeData(raw) {
+  const base = raw && typeof raw === "object" ? raw : {};
+  const outcomeRaw = base.outcome && typeof base.outcome === "object" ? base.outcome : {};
 
-  // Calculate layout positions if not provided
-  const layout = positions || calculateLayout(treeData);
+  const outcome = {
+    id: typeof outcomeRaw.id === "string" && outcomeRaw.id ? outcomeRaw.id : "outcome",
+    text: typeof outcomeRaw.text === "string" ? outcomeRaw.text : "Desired Outcome",
+  };
 
-  // Outcome node
-  const outcomeId = createShapeId(treeData.outcome.id);
-  shapes.push({
-    id: outcomeId,
-    type: "geo",
-    x: layout[treeData.outcome.id]?.x ?? 400,
-    y: layout[treeData.outcome.id]?.y ?? 50,
-    props: {
-      w: NODE_WIDTH,
-      h: NODE_HEIGHT,
-      geo: "rectangle",
-      richText: toRichText(treeData.outcome.text || "Desired Outcome"),
-      color: NODE_COLORS.outcome.tldraw,
-      fill: "solid",
-      size: "s",
-      font: "sans",
-      align: "middle",
-      verticalAlign: "middle",
-    },
-    meta: { nodeType: "outcome", nodeId: treeData.outcome.id },
-  });
+  const opportunities = Array.isArray(base.opportunities) ? base.opportunities : [];
+  const normalizedOpportunities = opportunities.map((opp, oppIndex) => {
+    const safeOpp = opp && typeof opp === "object" ? opp : {};
+    const oppId = typeof safeOpp.id === "string" && safeOpp.id ? safeOpp.id : `opp_${oppIndex}`;
+    const oppText = typeof safeOpp.text === "string" ? safeOpp.text : "Opportunity";
 
-  // Opportunities
-  (treeData.opportunities || []).forEach((opp) => {
-    const oppId = createShapeId(opp.id);
-    shapes.push({
-      id: oppId,
-      type: "geo",
-      x: layout[opp.id]?.x ?? 400,
-      y: layout[opp.id]?.y ?? 200,
-      props: {
-        w: NODE_WIDTH,
-        h: NODE_HEIGHT,
-        geo: "rectangle",
-        richText: toRichText(opp.text || "Opportunity"),
-        color: NODE_COLORS.opportunity.tldraw,
-        fill: "solid",
-        size: "s",
-        font: "sans",
-        align: "middle",
-        verticalAlign: "middle",
-      },
-      meta: { nodeType: "opportunity", nodeId: opp.id },
-    });
+    const solutions = Array.isArray(safeOpp.solutions) ? safeOpp.solutions : [];
+    const normalizedSolutions = solutions.map((sol, solIndex) => {
+      const safeSol = sol && typeof sol === "object" ? sol : {};
+      const solId = typeof safeSol.id === "string" && safeSol.id ? safeSol.id : `${oppId}_sol_${solIndex}`;
+      const solText = typeof safeSol.text === "string" ? safeSol.text : "Solution";
 
-    // Arrow from outcome to opportunity — all start from center-bottom to form a shared trunk
-    const arrowId = createShapeId(`arrow-${treeData.outcome.id}-${opp.id}`);
-    shapes.push({
-      id: arrowId,
-      type: "arrow",
-      x: 0,
-      y: 0,
-      props: {
-        kind: "elbow",
-        color: "grey",
-        size: "s",
-        bend: 0,
-        elbowMidPoint: 0.5,
-        arrowheadStart: "none",
-        arrowheadEnd: "arrow",
-        start: { x: 0, y: 0 },
-        end: { x: 0, y: 0 },
-      },
-    });
-    bindings.push(
-      { fromId: arrowId, toId: outcomeId, type: "arrow", props: { terminal: "start", normalizedAnchor: { x: 0.5, y: 1 }, isExact: true, isPrecise: true } },
-      { fromId: arrowId, toId: oppId, type: "arrow", props: { terminal: "end", normalizedAnchor: { x: 0.5, y: 0 }, isExact: true, isPrecise: true } }
-    );
-
-    // Solutions
-    (opp.solutions || []).forEach((sol) => {
-      const solId = createShapeId(sol.id);
-      shapes.push({
-        id: solId,
-        type: "geo",
-        x: layout[sol.id]?.x ?? 400,
-        y: layout[sol.id]?.y ?? 350,
-        props: {
-          w: NODE_WIDTH,
-          h: NODE_HEIGHT,
-          geo: "rectangle",
-          richText: toRichText(sol.text || "Solution"),
-          color: NODE_COLORS.solution.tldraw,
-          fill: "solid",
-          size: "s",
-          font: "sans",
-          align: "middle",
-          verticalAlign: "middle",
-        },
-        meta: { nodeType: "solution", nodeId: sol.id, parentId: opp.id },
-      });
-
-      // Arrow from opportunity to solution
-      const solArrowId = createShapeId(`arrow-${opp.id}-${sol.id}`);
-      shapes.push({
-        id: solArrowId,
-        type: "arrow",
-        x: 0,
-        y: 0,
-        props: {
-          kind: "elbow",
-          color: "grey",
-          size: "s",
-          bend: 0,
-          elbowMidPoint: 0.5,
-          arrowheadStart: "none",
-          arrowheadEnd: "arrow",
-          start: { x: 0, y: 0 },
-          end: { x: 0, y: 0 },
-        },
-      });
-      bindings.push(
-        { fromId: solArrowId, toId: oppId, type: "arrow", props: { terminal: "start", normalizedAnchor: { x: 0.5, y: 1 }, isExact: false, isPrecise: false } },
-        { fromId: solArrowId, toId: solId, type: "arrow", props: { terminal: "end", normalizedAnchor: { x: 0.5, y: 0 }, isExact: false, isPrecise: false } }
-      );
-
-      // Experiments
-      (sol.experiments || []).forEach((exp) => {
-        const expId = createShapeId(exp.id);
-        shapes.push({
-          id: expId,
-          type: "geo",
-          x: layout[exp.id]?.x ?? 400,
-          y: layout[exp.id]?.y ?? 500,
-          props: {
-            w: NODE_WIDTH,
-            h: NODE_HEIGHT,
-            geo: "rectangle",
-            richText: toRichText(exp.text || "Experiment"),
-            color: NODE_COLORS.experiment.tldraw,
-            fill: "solid",
-            size: "s",
-            font: "sans",
-            align: "middle",
-            verticalAlign: "middle",
-          },
-          meta: { nodeType: "experiment", nodeId: exp.id, parentId: sol.id, grandParentId: opp.id },
-        });
-
-        // Arrow from solution to experiment
-        const expArrowId = createShapeId(`arrow-${sol.id}-${exp.id}`);
-        shapes.push({
-          id: expArrowId,
-          type: "arrow",
-          x: 0,
-          y: 0,
-          props: {
-            kind: "elbow",
-            color: "grey",
-            size: "s",
-            bend: 0,
-            elbowMidPoint: 0.5,
-            arrowheadStart: "none",
-            arrowheadEnd: "arrow",
-            start: { x: 0, y: 0 },
-            end: { x: 0, y: 0 },
-          },
-        });
-        bindings.push(
-          { fromId: expArrowId, toId: solId, type: "arrow", props: { terminal: "start", normalizedAnchor: { x: 0.5, y: 1 }, isExact: false, isPrecise: false } },
-          { fromId: expArrowId, toId: expId, type: "arrow", props: { terminal: "end", normalizedAnchor: { x: 0.5, y: 0 }, isExact: false, isPrecise: false } }
-        );
-      });
-    });
-  });
-
-  return { shapes, bindings };
-}
-
-// Calculate hierarchical tree layout positions
-function calculateLayout(treeData) {
-  const positions = {};
-  if (!treeData || !treeData.outcome) return positions;
-
-  // Count total leaf nodes for width calculation
-  let totalLeaves = 0;
-  const oppWidths = [];
-
-  (treeData.opportunities || []).forEach((opp) => {
-    let oppLeafCount = 0;
-    (opp.solutions || []).forEach((sol) => {
-      const expCount = Math.max((sol.experiments || []).length, 1);
-      oppLeafCount += expCount;
-    });
-    oppLeafCount = Math.max(oppLeafCount, 1);
-    oppWidths.push(oppLeafCount);
-    totalLeaves += oppLeafCount;
-  });
-
-  totalLeaves = Math.max(totalLeaves, 1);
-  const totalWidth = totalLeaves * (NODE_WIDTH + HORIZONTAL_GAP) - HORIZONTAL_GAP;
-
-  // Outcome centered at top
-  positions[treeData.outcome.id] = { x: totalWidth / 2 - NODE_WIDTH / 2, y: 50 };
-
-  // Layout each opportunity subtree
-  let currentX = 0;
-
-  (treeData.opportunities || []).forEach((opp, oppIdx) => {
-    const oppWidth = oppWidths[oppIdx] * (NODE_WIDTH + HORIZONTAL_GAP) - HORIZONTAL_GAP;
-    const oppCenterX = currentX + oppWidth / 2;
-
-    positions[opp.id] = { x: oppCenterX - NODE_WIDTH / 2, y: 50 + VERTICAL_GAP };
-
-    // Solutions
-    let solX = currentX;
-    (opp.solutions || []).forEach((sol) => {
-      const expCount = Math.max((sol.experiments || []).length, 1);
-      const solWidth = expCount * (NODE_WIDTH + HORIZONTAL_GAP) - HORIZONTAL_GAP;
-      const solCenterX = solX + solWidth / 2;
-
-      positions[sol.id] = { x: solCenterX - NODE_WIDTH / 2, y: 50 + VERTICAL_GAP * 2 };
-
-      // Experiments
-      (sol.experiments || []).forEach((exp, expIdx) => {
-        positions[exp.id] = {
-          x: solX + expIdx * (NODE_WIDTH + HORIZONTAL_GAP),
-          y: 50 + VERTICAL_GAP * 3,
+      const experiments = Array.isArray(safeSol.experiments) ? safeSol.experiments : [];
+      const normalizedExperiments = experiments.map((exp, expIndex) => {
+        const safeExp = exp && typeof exp === "object" ? exp : {};
+        return {
+          id: typeof safeExp.id === "string" && safeExp.id ? safeExp.id : `${solId}_exp_${expIndex}`,
+          text: typeof safeExp.text === "string" ? safeExp.text : "Experiment",
         };
       });
 
-      solX += solWidth + HORIZONTAL_GAP;
+      return {
+        id: solId,
+        text: solText,
+        experiments: normalizedExperiments,
+      };
     });
 
-    currentX += oppWidth + HORIZONTAL_GAP;
+    return {
+      id: oppId,
+      text: oppText,
+      sourceRowId: safeOpp.sourceRowId,
+      solutions: normalizedSolutions,
+    };
   });
 
-  return positions;
+  return {
+    outcome,
+    opportunities: normalizedOpportunities,
+    positions: base.positions && typeof base.positions === "object" ? base.positions : undefined,
+  };
 }
 
-// Extract tree data from tldraw shapes (for text edits)
-function shapesToTreeData(editor, currentData) {
-  const allShapes = editor.getCurrentPageShapes();
-  const geoShapes = allShapes.filter((s) => s.type === "geo" && s.meta?.nodeType);
-
-  const newData = JSON.parse(JSON.stringify(currentData));
-
-  geoShapes.forEach((shape) => {
-    const { nodeType, nodeId, parentId, grandParentId } = shape.meta;
-    const text = shape.props?.richText ? renderPlaintextFromRichText(editor, shape.props.richText) : "";
-
-    if (nodeType === "outcome") {
-      newData.outcome.text = text;
-    } else if (nodeType === "opportunity") {
-      const opp = newData.opportunities.find((o) => o.id === nodeId);
-      if (opp) opp.text = text;
-    } else if (nodeType === "solution") {
-      const opp = newData.opportunities.find((o) => o.id === parentId);
-      if (opp) {
-        const sol = opp.solutions.find((s) => s.id === nodeId);
-        if (sol) sol.text = text;
-      }
-    } else if (nodeType === "experiment") {
-      const opp = newData.opportunities.find((o) => o.id === grandParentId);
-      if (opp) {
-        const sol = opp.solutions.find((s) => s.id === parentId);
-        if (sol) {
-          const exp = sol.experiments.find((e) => e.id === nodeId);
-          if (exp) exp.text = text;
-        }
-      }
-    }
-  });
-
-  return newData;
+function genId(prefix = "node") {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// Generate a unique ID
-function genId() {
-  return Math.random().toString(36).substring(2, 10);
+function deepClone(value) {
+  if (value === undefined || value === null) return value;
+  return JSON.parse(JSON.stringify(value));
 }
 
-// Get all node IDs belonging to an opportunity's chain (including outcome)
-function getChainNodeIds(opportunityId, treeData) {
-  const ids = new Set();
-  ids.add(treeData.outcome.id);
-  ids.add(opportunityId);
+function calculateLayout(treeData) {
+  const layout = {};
+  const opportunities = treeData.opportunities || [];
 
-  const opp = (treeData.opportunities || []).find((o) => o.id === opportunityId);
-  if (opp) {
-    (opp.solutions || []).forEach((sol) => {
-      ids.add(sol.id);
-      (sol.experiments || []).forEach((exp) => {
-        ids.add(exp.id);
+  const opportunityCount = Math.max(1, opportunities.length);
+  const totalOpportunityWidth = opportunityCount * NODE_WIDTH + (opportunityCount - 1) * HORIZONTAL_GAP;
+  const startOpportunityX = Math.max(40, Math.floor((1200 - totalOpportunityWidth) / 2));
+
+  const outcomeCenterX = startOpportunityX + totalOpportunityWidth / 2;
+  layout[treeData.outcome.id] = {
+    x: Math.max(40, Math.floor(outcomeCenterX - NODE_WIDTH / 2)),
+    y: OUTCOME_Y,
+  };
+
+  opportunities.forEach((opp, oppIndex) => {
+    const oppX = startOpportunityX + oppIndex * (NODE_WIDTH + HORIZONTAL_GAP);
+    layout[opp.id] = { x: oppX, y: OPPORTUNITY_Y };
+
+    const solutions = opp.solutions || [];
+    if (solutions.length === 0) return;
+
+    const totalSolutionsWidth = solutions.length * NODE_WIDTH + (solutions.length - 1) * HORIZONTAL_GAP;
+    const solutionsStartX = oppX + Math.floor((NODE_WIDTH - totalSolutionsWidth) / 2);
+
+    solutions.forEach((sol, solIndex) => {
+      const solX = solutionsStartX + solIndex * (NODE_WIDTH + HORIZONTAL_GAP);
+      layout[sol.id] = { x: solX, y: SOLUTION_Y };
+
+      const experiments = sol.experiments || [];
+      if (experiments.length === 0) return;
+
+      const totalExperimentsWidth = experiments.length * NODE_WIDTH + (experiments.length - 1) * HORIZONTAL_GAP;
+      const experimentsStartX = solX + Math.floor((NODE_WIDTH - totalExperimentsWidth) / 2);
+
+      experiments.forEach((exp, expIndex) => {
+        const expX = experimentsStartX + expIndex * (NODE_WIDTH + HORIZONTAL_GAP);
+        layout[exp.id] = { x: expX, y: EXPERIMENT_Y };
       });
     });
-  }
-  return ids;
+  });
+
+  return layout;
 }
 
-// Get the opportunity ID that a node belongs to
-function getOpportunityForNode(shape, treeData) {
-  if (!shape?.meta) return null;
-  const { nodeType, nodeId, parentId, grandParentId } = shape.meta;
-  if (nodeType === "opportunity") return nodeId;
-  if (nodeType === "solution") return parentId;
-  if (nodeType === "experiment") return grandParentId;
-  if (nodeType === "outcome") return null;
+function getTreeBounds(treeData, layout) {
+  const nodes = [treeData.outcome, ...(treeData.opportunities || [])];
+  (treeData.opportunities || []).forEach((opp) => {
+    (opp.solutions || []).forEach((sol) => {
+      nodes.push(sol);
+      (sol.experiments || []).forEach((exp) => nodes.push(exp));
+    });
+  });
+
+  let maxX = 0;
+  let maxY = 0;
+  nodes.forEach((node) => {
+    const pos = layout[node.id] || { x: 40, y: 40 };
+    maxX = Math.max(maxX, pos.x + NODE_WIDTH + 40);
+    maxY = Math.max(maxY, pos.y + NODE_HEIGHT + 40);
+  });
+
+  return {
+    width: Math.max(1200, maxX),
+    height: Math.max(660, maxY),
+  };
+}
+
+function getOpportunityForNode(selection, treeData) {
+  if (!selection) return null;
+  if (selection.type === "opportunity") return selection.id;
+  if (selection.type === "solution") return selection.parentId;
+  if (selection.type === "experiment") return selection.grandParentId;
   return null;
 }
 
-export default function OSTCanvas({ data, onChange }) {
-  const editorRef = useRef(null);
-  const [initialized, setInitialized] = useState(false);
-  const [focusedOpportunityId, setFocusedOpportunityId] = useState(null);
-  const focusedRef = useRef(null);
-  focusedRef.current = focusedOpportunityId;
+function getChainNodeIds(opportunityId, treeData) {
+  const ids = new Set([treeData.outcome.id, opportunityId]);
+  const opportunity = (treeData.opportunities || []).find((o) => o.id === opportunityId);
+  if (!opportunity) return ids;
 
-  const treeData = data || {
-    outcome: { id: "outcome", text: "Desired Outcome" },
-    opportunities: [],
+  (opportunity.solutions || []).forEach((sol) => {
+    ids.add(sol.id);
+    (sol.experiments || []).forEach((exp) => ids.add(exp.id));
+  });
+
+  return ids;
+}
+
+export default function OSTCanvas({ outcomeId, data, onChange }) {
+  const treeData = useMemo(() => normalizeTreeData(data || EMPTY_TREE), [data]);
+  const [selection, setSelection] = useState(null);
+  const [focusedOpportunityId, setFocusedOpportunityId] = useState(null);
+
+  const layout = useMemo(() => treeData.positions || calculateLayout(treeData), [treeData]);
+  const bounds = useMemo(() => getTreeBounds(treeData, layout), [treeData, layout]);
+
+  const updateTree = (updater) => {
+    const next = deepClone(treeData);
+    updater(next);
+    next.positions = calculateLayout(next);
+    onChange(next);
   };
 
-  const dataRef = useRef(treeData);
-  dataRef.current = treeData;
-
-  // Build initial snapshot
-  const initialSnapshot = useRef(null);
-  if (!initialSnapshot.current) {
-    const positions = treeData.positions || calculateLayout(treeData);
-    const { shapes, bindings } = treeDataToShapes(treeData, positions);
-    initialSnapshot.current = { shapes, bindings };
-  }
-
-  const handleMount = useCallback((editor) => {
-    editorRef.current = editor;
-
-    // Create initial shapes
-    const { shapes, bindings } = initialSnapshot.current;
-    
-    if (shapes.length > 0) {
-      editor.createShapes(shapes);
-      if (bindings.length > 0) {
-        editor.createBindings(bindings);
-      }
-      // Center content at 100% zoom
-      setTimeout(() => {
-        editor.resetZoom();
-        const bounds = editor.getCurrentPageBounds();
-        if (bounds) {
-          editor.centerOnPoint({ x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 });
-        }
-      }, 100);
-    }
-
-    setInitialized(true);
-
-    // Click handler for chain focus
-    const handlePointerUp = (info) => {
-      // Small delay to let tldraw process the click first
-      setTimeout(() => {
-        const selectedShapes = editor.getSelectedShapes();
-        const clickedShape = selectedShapes.length === 1 ? selectedShapes[0] : null;
-
-        if (!clickedShape || clickedShape.type !== "geo" || !clickedShape.meta?.nodeType) {
-          // Clicked empty canvas or non-node — clear focus
-          if (focusedRef.current) {
-            setFocusedOpportunityId(null);
-            focusedRef.current = null;
-            applyFocusOpacity(editor, null);
-          }
-          return;
-        }
-
-        const { nodeType } = clickedShape.meta;
-
-        if (nodeType === "opportunity") {
-          const clickedId = clickedShape.meta.nodeId;
-          if (focusedRef.current === clickedId) {
-            // Toggle off
-            setFocusedOpportunityId(null);
-            focusedRef.current = null;
-            applyFocusOpacity(editor, null);
-          } else {
-            // Focus this chain
-            const chainIds = getChainNodeIds(clickedId, dataRef.current);
-            setFocusedOpportunityId(clickedId);
-            focusedRef.current = clickedId;
-            applyFocusOpacity(editor, chainIds);
-          }
-        } else if (nodeType === "outcome") {
-          // Clicking outcome clears focus
-          if (focusedRef.current) {
-            setFocusedOpportunityId(null);
-            focusedRef.current = null;
-            applyFocusOpacity(editor, null);
-          }
-        } else {
-          // Clicked a solution or experiment — focus its parent opportunity chain
-          const oppId = getOpportunityForNode(clickedShape, dataRef.current);
-          if (oppId && oppId !== focusedRef.current) {
-            const chainIds = getChainNodeIds(oppId, dataRef.current);
-            setFocusedOpportunityId(oppId);
-            focusedRef.current = oppId;
-            applyFocusOpacity(editor, chainIds);
-          } else if (oppId && oppId === focusedRef.current) {
-            // Already focused on this chain — toggle off
-            setFocusedOpportunityId(null);
-            focusedRef.current = null;
-            applyFocusOpacity(editor, null);
-          }
-        }
-      }, 50);
-    };
-
-    editor.on("pointer_up", handlePointerUp);
-
-    // Listen for shape changes (text edits, moves)
-    const handleChange = () => {
-      if (!editorRef.current) return;
-      const newData = shapesToTreeData(editorRef.current, dataRef.current);
-      
-      // Save positions
-      const allShapes = editorRef.current.getCurrentPageShapes();
-      const positions = {};
-      allShapes.forEach((s) => {
-        if (s.type === "geo" && s.meta?.nodeId) {
-          positions[s.meta.nodeId] = { x: s.x, y: s.y };
-        }
-      });
-      newData.positions = positions;
-
-      onChange(newData);
-    };
-
-    // Debounced change handler
-    let timeout;
-    const debouncedChange = () => {
-      clearTimeout(timeout);
-      timeout = setTimeout(handleChange, 500);
-    };
-
-    editor.sideEffects.registerAfterChangeHandler("shape", debouncedChange);
-  }, [onChange]);
-
-  // Sync external data changes (e.g., from discovery table) into the canvas
-  const prevOppCountRef = useRef((treeData.opportunities || []).length);
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor || !initialized) return;
-
-    const currentOpps = treeData.opportunities || [];
-    const prevCount = prevOppCountRef.current;
-
-    // Detect if opportunities changed externally (count changed or names differ)
-    if (currentOpps.length !== prevCount) {
-      prevOppCountRef.current = currentOpps.length;
-      const positions = calculateLayout(treeData);
-      rebuildCanvas(editor, treeData, positions);
-    } else {
-      // Check if any text changed
-      const allShapes = editor.getCurrentPageShapes();
-      const oppShapes = allShapes.filter(s => s.meta?.nodeType === "opportunity");
-      const needsRebuild = currentOpps.some(opp => {
-        const shape = oppShapes.find(s => s.meta?.nodeId === opp.id);
-        if (!shape) return true;
-        const shapeText = shape.props?.richText ? renderPlaintextFromRichText(editor, shape.props.richText) : "";
-        return shapeText !== opp.text;
-      });
-      if (needsRebuild) {
-        const positions = treeData.positions || calculateLayout(treeData);
-        rebuildCanvas(editor, treeData, positions);
-      }
-    }
-  }, [treeData, initialized]);
-
-  // Toolbar actions
   const addOpportunity = () => {
-    const editor = editorRef.current;
-    if (!editor) return;
-
-    const newId = genId();
-    const newOpp = { id: newId, text: "New Opportunity", solutions: [] };
-    const newData = { ...dataRef.current, opportunities: [...(dataRef.current.opportunities || []), newOpp] };
-    
-    // Recalculate layout
-    const positions = calculateLayout(newData);
-    newData.positions = positions;
-    onChange(newData);
-
-    // Recreate all shapes
-    rebuildCanvas(editor, newData, positions);
+    updateTree((next) => {
+      next.opportunities = next.opportunities || [];
+      next.opportunities.push({
+        id: genId("opp"),
+        text: "New Opportunity",
+        solutions: [],
+      });
+    });
   };
 
   const addSolution = () => {
-    const editor = editorRef.current;
-    if (!editor) return;
-
-    // Find selected opportunity
-    const selected = editor.getSelectedShapes();
-    const oppShape = selected.find((s) => s.meta?.nodeType === "opportunity");
-    if (!oppShape) {
-      alert("Select an opportunity (purple node) first");
+    const oppId = selection?.type === "opportunity" ? selection.id : selection?.parentId;
+    if (!oppId) {
+      alert("Select an opportunity first");
       return;
     }
 
-    const newId = genId();
-    const newSol = { id: newId, text: "New Solution", experiments: [] };
-    const newData = JSON.parse(JSON.stringify(dataRef.current));
-    const opp = newData.opportunities.find((o) => o.id === oppShape.meta.nodeId);
-    if (opp) {
-      opp.solutions.push(newSol);
-      const positions = calculateLayout(newData);
-      newData.positions = positions;
-      onChange(newData);
-      rebuildCanvas(editor, newData, positions);
-    }
+    updateTree((next) => {
+      const opp = (next.opportunities || []).find((o) => o.id === oppId);
+      if (!opp) return;
+      opp.solutions = opp.solutions || [];
+      opp.solutions.push({ id: genId("sol"), text: "New Solution", experiments: [] });
+    });
   };
 
   const addExperiment = () => {
-    const editor = editorRef.current;
-    if (!editor) return;
-
-    // Find selected solution
-    const selected = editor.getSelectedShapes();
-    const solShape = selected.find((s) => s.meta?.nodeType === "solution");
-    if (!solShape) {
-      alert("Select a solution (green node) first");
+    if (selection?.type !== "solution") {
+      alert("Select a solution first");
       return;
     }
 
-    const newId = genId();
-    const newExp = { id: newId, text: "New Experiment" };
-    const newData = JSON.parse(JSON.stringify(dataRef.current));
-    const opp = newData.opportunities.find((o) => o.id === solShape.meta.parentId);
-    if (opp) {
-      const sol = opp.solutions.find((s) => s.id === solShape.meta.nodeId);
-      if (sol) {
-        sol.experiments.push(newExp);
-        const positions = calculateLayout(newData);
-        newData.positions = positions;
-        onChange(newData);
-        rebuildCanvas(editor, newData, positions);
-      }
-    }
+    updateTree((next) => {
+      const opp = (next.opportunities || []).find((o) => o.id === selection.parentId);
+      if (!opp) return;
+      const sol = (opp.solutions || []).find((s) => s.id === selection.id);
+      if (!sol) return;
+      sol.experiments = sol.experiments || [];
+      sol.experiments.push({ id: genId("exp"), text: "New Experiment" });
+    });
   };
 
   const deleteSelected = () => {
-    const editor = editorRef.current;
-    if (!editor) return;
+    if (!selection || selection.type === "outcome") return;
 
-    const selected = editor.getSelectedShapes();
-    const nodeShape = selected.find((s) => s.type === "geo" && s.meta?.nodeType && s.meta.nodeType !== "outcome");
-    if (!nodeShape) return;
-
-    const { nodeType, nodeId, parentId, grandParentId } = nodeShape.meta;
-    const newData = JSON.parse(JSON.stringify(dataRef.current));
-
-    if (nodeType === "opportunity") {
-      newData.opportunities = newData.opportunities.filter((o) => o.id !== nodeId);
-    } else if (nodeType === "solution") {
-      const opp = newData.opportunities.find((o) => o.id === parentId);
-      if (opp) opp.solutions = opp.solutions.filter((s) => s.id !== nodeId);
-    } else if (nodeType === "experiment") {
-      const opp = newData.opportunities.find((o) => o.id === grandParentId);
-      if (opp) {
-        const sol = opp.solutions.find((s) => s.id === parentId);
-        if (sol) sol.experiments = sol.experiments.filter((e) => e.id !== nodeId);
+    updateTree((next) => {
+      if (selection.type === "opportunity") {
+        next.opportunities = (next.opportunities || []).filter((o) => o.id !== selection.id);
+        if (focusedOpportunityId === selection.id) setFocusedOpportunityId(null);
+        return;
       }
-    }
 
-    const positions = calculateLayout(newData);
-    newData.positions = positions;
-    onChange(newData);
-    rebuildCanvas(editor, newData, positions);
+      if (selection.type === "solution") {
+        const opp = (next.opportunities || []).find((o) => o.id === selection.parentId);
+        if (!opp) return;
+        opp.solutions = (opp.solutions || []).filter((s) => s.id !== selection.id);
+        return;
+      }
+
+      if (selection.type === "experiment") {
+        const opp = (next.opportunities || []).find((o) => o.id === selection.grandParentId);
+        if (!opp) return;
+        const sol = (opp.solutions || []).find((s) => s.id === selection.parentId);
+        if (!sol) return;
+        sol.experiments = (sol.experiments || []).filter((e) => e.id !== selection.id);
+      }
+    });
+
+    setSelection(null);
   };
 
-  // Apply opacity to shapes based on focus state
-  const applyFocusOpacity = (editor, chainNodeIds) => {
-    const allShapes = editor.getCurrentPageShapes();
-    const updates = [];
+  const updateNodeText = (meta, value) => {
+    updateTree((next) => {
+      if (meta.type === "outcome") {
+        next.outcome.text = value;
+        return;
+      }
+      if (meta.type === "opportunity") {
+        const opp = (next.opportunities || []).find((o) => o.id === meta.id);
+        if (opp) opp.text = value;
+        return;
+      }
+      if (meta.type === "solution") {
+        const opp = (next.opportunities || []).find((o) => o.id === meta.parentId);
+        const sol = opp?.solutions?.find((s) => s.id === meta.id);
+        if (sol) sol.text = value;
+        return;
+      }
+      if (meta.type === "experiment") {
+        const opp = (next.opportunities || []).find((o) => o.id === meta.grandParentId);
+        const sol = opp?.solutions?.find((s) => s.id === meta.parentId);
+        const exp = sol?.experiments?.find((e) => e.id === meta.id);
+        if (exp) exp.text = value;
+      }
+    });
+  };
 
-    if (!chainNodeIds) {
-      // Clear focus — restore all to full opacity
-      allShapes.forEach((shape) => {
-        if (shape.opacity !== 1) {
-          updates.push({ id: shape.id, type: shape.type, opacity: 1 });
-        }
-      });
-    } else {
-      // Dim non-focused, highlight focused
-      allShapes.forEach((shape) => {
-        if (shape.type === "geo" && shape.meta?.nodeId) {
-          const inChain = chainNodeIds.has(shape.meta.nodeId);
-          const targetOpacity = inChain ? 1 : 0.2;
-          if (shape.opacity !== targetOpacity) {
-            updates.push({ id: shape.id, type: shape.type, opacity: targetOpacity });
+  const renderNode = (meta, text) => {
+    const style = NODE_STYLES[meta.type];
+    const pos = layout[meta.id] || { x: 40, y: 40 };
+    const isSelected = selection?.type === meta.type && selection?.id === meta.id;
+
+    let opacity = 1;
+    if (focusedOpportunityId) {
+      const chainIds = getChainNodeIds(focusedOpportunityId, treeData);
+      opacity = chainIds.has(meta.id) ? 1 : 0.2;
+    }
+
+    return (
+      <div
+        key={meta.id}
+        className="absolute rounded-xl shadow-sm"
+        style={{
+          left: pos.x,
+          top: pos.y,
+          width: NODE_WIDTH,
+          minHeight: NODE_HEIGHT,
+          background: style.bg,
+          border: `2px solid ${isSelected ? "#1e293b" : style.border}`,
+          opacity,
+          transition: "opacity 120ms ease",
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          setSelection(meta);
+
+          const oppId = getOpportunityForNode(meta, treeData);
+          if (oppId) {
+            setFocusedOpportunityId((prev) => (prev === oppId ? null : oppId));
+          } else {
+            setFocusedOpportunityId(null);
           }
-        } else if (shape.type === "arrow") {
-          // Check if arrow connects nodes in the chain via bindings
-          const arrowBindings = editor.getBindingsFromShape(shape, "arrow");
-          const connectedNodeIds = arrowBindings.map((b) => {
-            const targetShape = editor.getShape(b.toId);
-            return targetShape?.meta?.nodeId;
-          }).filter(Boolean);
-          const inChain = connectedNodeIds.length > 0 && connectedNodeIds.every((id) => chainNodeIds.has(id));
-          const targetOpacity = inChain ? 1 : 0.2;
-          if (shape.opacity !== targetOpacity) {
-            updates.push({ id: shape.id, type: shape.type, opacity: targetOpacity });
-          }
-        }
+        }}
+      >
+        <div
+          className="px-3 pt-2 text-[10px] font-semibold uppercase tracking-wide"
+          style={{ color: style.text }}
+        >
+          {style.title}
+        </div>
+        <textarea
+          value={text || ""}
+          onChange={(e) => updateNodeText(meta, e.target.value)}
+          className="w-full bg-transparent px-3 pb-3 pt-1 text-sm resize-none outline-none"
+          style={{ color: style.text, minHeight: 56 }}
+        />
+      </div>
+    );
+  };
+
+  const edges = [];
+  (treeData.opportunities || []).forEach((opp) => {
+    edges.push({ fromId: treeData.outcome.id, toId: opp.id });
+    (opp.solutions || []).forEach((sol) => {
+      edges.push({ fromId: opp.id, toId: sol.id });
+      (sol.experiments || []).forEach((exp) => {
+        edges.push({ fromId: sol.id, toId: exp.id });
       });
-    }
-
-    if (updates.length > 0) {
-      editor.updateShapes(updates);
-    }
-  };
-
-  const rebuildCanvas = (editor, newData, positions) => {
-    // Clear all shapes
-    const allShapeIds = editor.getCurrentPageShapeIds();
-    if (allShapeIds.size > 0) {
-      editor.deleteShapes([...allShapeIds]);
-    }
-
-    // Recreate
-    const { shapes, bindings } = treeDataToShapes(newData, positions);
-    if (shapes.length > 0) {
-      editor.createShapes(shapes);
-      if (bindings.length > 0) {
-        editor.createBindings(bindings);
-      }
-    }
-
-    // Re-apply focus if active
-    if (focusedRef.current) {
-      const oppStillExists = (newData.opportunities || []).some((o) => o.id === focusedRef.current);
-      if (oppStillExists) {
-        const chainIds = getChainNodeIds(focusedRef.current, newData);
-        setTimeout(() => applyFocusOpacity(editor, chainIds), 10);
-      } else {
-        setFocusedOpportunityId(null);
-        focusedRef.current = null;
-      }
-    }
-
-    setTimeout(() => {
-      editor.zoomToFit({ animation: { duration: 200 } });
-    }, 100);
-  };
+    });
+  });
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shrink-0">
-        <span className="relative group text-xs font-semibold text-slate-500 dark:text-slate-400 mr-2 cursor-help">
-          OST Canvas
-          <div className="absolute left-0 top-full mt-2 w-72 p-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mb-2">
-              The <strong>Opportunity Solution Tree</strong> is a visual framework by Teresa Torres for continuous product discovery. It maps a desired outcome to opportunities (customer needs), solutions (ideas to address them), and experiments (ways to validate).
-            </p>
-            <a
-              href="https://www.producttalk.org/opportunity-solution-tree/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
-            >
-              Learn more at producttalk.org →
-            </a>
-          </div>
-        </span>
-        <button
-          onClick={addOpportunity}
-          className="px-3 py-1.5 text-xs bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors font-medium"
+    <div className="flex flex-col h-full" key={outcomeId}>
+      <div className="flex-1 overflow-auto bg-slate-50 dark:bg-slate-900" onClick={() => setSelection(null)}>
+        <div
+          className="relative"
+          style={{
+            width: bounds.width,
+            height: bounds.height,
+            minWidth: "100%",
+          }}
         >
-          + Opportunity
-        </button>
-        <button
-          onClick={addSolution}
-          className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition-colors font-medium"
-        >
-          + Solution
-        </button>
-        <button
-          onClick={addExperiment}
-          className="px-3 py-1.5 text-xs bg-sky-600 text-white rounded-md hover:bg-sky-700 transition-colors font-medium"
-        >
-          + Experiment
-        </button>
-        {focusedOpportunityId && (
-          <button
-            onClick={() => {
-              setFocusedOpportunityId(null);
-              focusedRef.current = null;
-              if (editorRef.current) applyFocusOpacity(editorRef.current, null);
-            }}
-            className="px-3 py-1.5 text-xs bg-amber-500 text-white rounded-md hover:bg-amber-600 transition-colors font-medium"
+          <svg
+            className="absolute inset-0 pointer-events-none"
+            width={bounds.width}
+            height={bounds.height}
+            viewBox={`0 0 ${bounds.width} ${bounds.height}`}
           >
-            Clear Focus
-          </button>
-        )}
-        <button
-          onClick={deleteSelected}
-          className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors font-medium ml-auto"
-        >
-          Delete Selected
-        </button>
-      </div>
+            {edges.map((edge) => {
+              const from = layout[edge.fromId];
+              const to = layout[edge.toId];
+              if (!from || !to) return null;
 
-      {/* Canvas */}
-      <div className="flex-1 relative">
-        <Tldraw
-          onMount={handleMount}
-          inferDarkMode
-          components={{
-            Toolbar: null,
-            StylePanel: null,
-            PageMenu: null,
-            ActionsMenu: null,
-            MainMenu: null,
-            NavigationPanel: null,
-            HelpMenu: null,
-            ZoomMenu: null,
-            Minimap: null,
-          }}
-          options={{
-            maxPages: 1,
-          }}
-        />
+              const x1 = from.x + NODE_WIDTH / 2;
+              const y1 = from.y + NODE_HEIGHT;
+              const x2 = to.x + NODE_WIDTH / 2;
+              const y2 = to.y;
+
+              return (
+                <path
+                  key={`${edge.fromId}-${edge.toId}`}
+                  d={`M ${x1} ${y1} C ${x1} ${(y1 + y2) / 2}, ${x2} ${(y1 + y2) / 2}, ${x2} ${y2}`}
+                  fill="none"
+                  stroke="#94a3b8"
+                  strokeWidth="2"
+                />
+              );
+            })}
+          </svg>
+
+          {renderNode({ type: "outcome", id: treeData.outcome.id }, treeData.outcome.text)}
+          {(treeData.opportunities || []).map((opp) => {
+            const nodes = [
+              renderNode({ type: "opportunity", id: opp.id }, opp.text),
+            ];
+            (opp.solutions || []).forEach((sol) => {
+              nodes.push(renderNode({ type: "solution", id: sol.id, parentId: opp.id }, sol.text));
+              (sol.experiments || []).forEach((exp) => {
+                nodes.push(
+                  renderNode(
+                    { type: "experiment", id: exp.id, parentId: sol.id, grandParentId: opp.id },
+                    exp.text
+                  )
+                );
+              });
+            });
+            return nodes;
+          })}
+        </div>
       </div>
     </div>
   );

@@ -25,7 +25,6 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from "react"
 import OSTCanvas from "./OSTCanvas.jsx";
 import DocumentsSection from "./DocumentsSection.jsx";
 import FeedbackSection from "./FeedbackSection.jsx";
-import TaskChat from "./TaskChat.jsx";
 import GitHubSync, { HybridStorage } from "./githubSync.js";
 
 // --- Encryption Utilities for Secure localStorage ---
@@ -402,10 +401,14 @@ const SECTIONS = [
 ];
 
 const DISCOVERY_SECTIONS = [
-  { id: "sourceDocuments", label: "Research Data" },
-  { id: "feedback", label: "Feedback" },
+  { id: "discoveryResearch", label: "Research" },
   { id: "discoveryTable", label: "Opportunity Solutions" },
   { id: "opportunityTree", label: "Diagram" },
+];
+
+const DISCOVERY_RESEARCH_TABS = [
+  { id: "documents", label: "Research Data" },
+  { id: "feedback", label: "Feedback" },
 ];
 
 const ORIGIN_OPTIONS = [
@@ -428,6 +431,7 @@ const ASSUMPTION_STATUSES = ["Unvalidated", "Needs Research", "Validated", "Disp
 const QUESTION_TYPES = ["Stakeholder", "User Research", "Developer", "Designer", "Business Analyst"];
 const QUESTION_STATUSES = ["Open", "Answered"];
 const CONFIDENCE_LEVELS = ["Low", "Medium", "High"];
+const DEFAULT_DISCOVERY_PROJECT_NAME = "B2B admin portal";
 
 const EDGE_CASE_ITEMS = [
   { id: "empty", label: "Empty state", hint: "What does the user see when there's no data?" },
@@ -441,6 +445,149 @@ const EDGE_CASE_ITEMS = [
   { id: "mobile", label: "Responsive / mobile", hint: "Does this need to work across breakpoints?" },
   { id: "accessibility", label: "Accessibility", hint: "Keyboard nav, screen readers, contrast?" },
 ];
+
+const DEFAULT_DISCOVERY_OUTCOME_NAME = "Reduce operational friction for B2B admins";
+
+const DEFAULT_DISCOVERY_COLUMNS = [
+  { id: "col_opp", name: "Opportunity", visible: true },
+  { id: "col_rprio", name: "Research ranked prio", visible: true },
+  { id: "col_iprio", name: "Internal prio level", visible: true },
+  { id: "col_obj", name: "Business objectives", visible: true },
+  { id: "col_about", name: "About", visible: true },
+  { id: "col_impact", name: "Impact", visible: true },
+  { id: "col_dk", name: "DK prior portal", visible: true },
+  { id: "col_se", name: "SE prior portal - redesigned Mitt3", visible: true },
+  { id: "col_proto", name: "Prototype test (2024)", visible: true },
+  { id: "col_b2b", name: "B2B admin portal (2026)", visible: true },
+  { id: "col_sol", name: "Solutions", visible: true },
+  { id: "col_exp", name: "Experiment", visible: true },
+];
+
+const isSeedDiscoveryProject = (analysis) => {
+  if (!analysis || analysis.projectMode !== "discovery") return false;
+  if (analysis.isSeedDiscoveryProject === true) return true;
+
+  const outcomes = Array.isArray(analysis.outcomes) ? analysis.outcomes : [];
+  return outcomes.some((outcome) => outcome?.name === DEFAULT_DISCOVERY_OUTCOME_NAME);
+};
+
+const createSeedDiscoveryAnalysis = () => {
+  const base = createBlankAnalysis(DEFAULT_DISCOVERY_PROJECT_NAME, "discovery");
+  const outcomeId = `outcome_${generateId()}`;
+  return {
+    ...base,
+    isSeedDiscoveryProject: true,
+    overview: {
+      ...base.overview,
+      featureName: DEFAULT_DISCOVERY_PROJECT_NAME,
+      description: "Shared discovery baseline for the B2B admin portal experience.",
+      origin: "User Research",
+    },
+    outcomes: [
+      {
+        id: outcomeId,
+        name: DEFAULT_DISCOVERY_OUTCOME_NAME,
+        status: "active",
+        createdAt: new Date().toISOString(),
+        discoveryTable: {
+          columns: DEFAULT_DISCOVERY_COLUMNS,
+          rows: [
+            {
+              id: `row_${generateId()}`,
+              cells: {
+                col_opp: "One-Step Access to Core Information",
+                col_rprio: "1",
+                col_iprio: "Now",
+                col_obj: "Reduce task completion time for daily admin workflows",
+                col_about: "Eliminate unnecessary drill-down by surfacing plan, number and SIM status in first view.",
+                col_impact: "High - affects daily repetitive checks and plan updates.",
+                col_dk: "Current portal hides subscription details behind multiple layers.",
+                col_se: "Users request direct visibility without deep navigation.",
+                col_proto: "Prototype feedback favored direct summary cards.",
+                col_b2b: "Prioritize a high-signal overview card on dashboard.",
+                col_sol: "",
+                col_exp: "",
+              },
+            },
+            {
+              id: `row_${generateId()}`,
+              cells: {
+                col_opp: "Universal Search with Smart Filters",
+                col_rprio: "2",
+                col_iprio: "Next",
+                col_obj: "Reduce time-to-find for account and subscription lookups",
+                col_about: "Enable global search by number, name, account and cost center from all contexts.",
+                col_impact: "High - lowers time spent in support-oriented requests.",
+                col_dk: "Search currently requires moving across multiple pages.",
+                col_se: "Users ask for direct jump-to-account patterns.",
+                col_proto: "Concept testing showed lower navigation confusion.",
+                col_b2b: "Include faceted search with remembered filters.",
+                col_sol: "",
+                col_exp: "",
+              },
+            },
+            {
+              id: `row_${generateId()}`,
+              cells: {
+                col_opp: "Bulk Operations for High-Volume Tasks",
+                col_rprio: "3",
+                col_iprio: "Next",
+                col_obj: "Enable efficient onboarding and offboarding at scale",
+                col_about: "Provide bulk create/edit/delete flows for SIM assignment and owner changes.",
+                col_impact: "Critical during onboarding and fleet migrations.",
+                col_dk: "Admins repeat the same tasks one subscription at a time.",
+                col_se: "Evidence supports role-based bulk permission controls.",
+                col_proto: "Testing indicated major time savings for power users.",
+                col_b2b: "Support CSV-assisted bulk actions with previews.",
+                col_sol: "",
+                col_exp: "",
+              },
+            },
+            {
+              id: `row_${generateId()}`,
+              cells: {
+                col_opp: "Real-Time Performance and System Response",
+                col_rprio: "4",
+                col_iprio: "Now",
+                col_obj: "Ensure sub-2 second response times for key workflows",
+                col_about: "Reduce page reload cycles and enable in-place updates.",
+                col_impact: "High - persistent latency blocks daily operations.",
+                col_dk: "Users report slow portal response in key workflows.",
+                col_se: "Upload and report actions often time out in peak hours.",
+                col_proto: "N/A in 2024 prototype",
+                col_b2b: "Track performance SLA inside admin tooling.",
+                col_sol: "",
+                col_exp: "",
+              },
+            },
+            {
+              id: `row_${generateId()}`,
+              cells: {
+                col_opp: "Role-Based Admin Access and Delegation",
+                col_rprio: "5",
+                col_iprio: "Later",
+                col_obj: "Support compliance and delegated admin management",
+                col_about: "Introduce granular role scopes for assistants and department admins.",
+                col_impact: "High for enterprise governance and distributed operations.",
+                col_dk: "Customers request full-access variants tied to role boundaries.",
+                col_se: "Need per cost-center permissions for assistants.",
+                col_proto: "Not included in 2024 design prototype.",
+                col_b2b: "Add role templates with auditable policy assignments.",
+                col_sol: "",
+                col_exp: "",
+              },
+            },
+          ],
+        },
+        opportunityTree: {
+          outcome: { id: "outcome", text: DEFAULT_DISCOVERY_OUTCOME_NAME },
+          opportunities: [],
+        },
+      },
+    ],
+    activeOutcomeId: outcomeId,
+  };
+};
 
 const createBlankAnalysis = (name = "Untitled Design Task", projectMode = "design-specs") => ({
   id: generateId(),
@@ -486,14 +633,100 @@ const createBlankAnalysis = (name = "Untitled Design Task", projectMode = "desig
   activeOutcomeId: null,
 });
 
-const createOutcome = (name) => ({
-  id: generateId(),
-  name,
-  status: "active",
-  createdAt: new Date().toISOString(),
-  discoveryTable: null,
-  opportunityTree: { outcome: { id: "outcome", text: name }, opportunities: [] },
+const createGeneratedDiscoveryTable = (outcomeName) => ({
+  columns: DEFAULT_DISCOVERY_COLUMNS,
+  rows: [
+    {
+      id: `row_${generateId()}`,
+      cells: {
+        col_opp: `Clarify top admin tasks for ${outcomeName}`,
+        col_rprio: "High",
+        col_iprio: "Now",
+        col_obj: "Identify the highest-frequency workflows to optimize first",
+        col_about: "Map daily admin jobs and where friction creates delays.",
+        col_impact: "High",
+        col_dk: "",
+        col_se: "",
+        col_proto: "",
+        col_b2b: "",
+        col_sol: "Task-focused dashboard and shortcuts",
+        col_exp: "Interview 5 admins and rank task frequency",
+      },
+    },
+    {
+      id: `row_${generateId()}`,
+      cells: {
+        col_opp: "Reduce navigation steps for common actions",
+        col_rprio: "Medium",
+        col_iprio: "Next",
+        col_obj: "Lower time-to-complete for repetitive operations",
+        col_about: "Find multi-step flows that can be completed in one place.",
+        col_impact: "High",
+        col_dk: "",
+        col_se: "",
+        col_proto: "",
+        col_b2b: "",
+        col_sol: "Inline actions and bulk controls",
+        col_exp: "Measure completion time before and after prototype",
+      },
+    },
+    {
+      id: `row_${generateId()}`,
+      cells: {
+        col_opp: "Increase confidence with clearer system status",
+        col_rprio: "Medium",
+        col_iprio: "Later",
+        col_obj: "Reduce uncertainty and support requests",
+        col_about: "Expose real-time state, ownership, and recent changes.",
+        col_impact: "Medium",
+        col_dk: "",
+        col_se: "",
+        col_proto: "",
+        col_b2b: "",
+        col_sol: "Status badges and activity timeline",
+        col_exp: "Validate trust and clarity with usability testing",
+      },
+    },
+  ],
 });
+
+const createOutcome = (name, options = {}) => {
+  const generateOpportunities = options.generateOpportunities === true;
+  return {
+    id: generateId(),
+    name,
+    status: "active",
+    createdAt: new Date().toISOString(),
+    discoveryTable: generateOpportunities ? createGeneratedDiscoveryTable(name) : null,
+    opportunityTree: { outcome: { id: "outcome", text: name }, opportunities: [] },
+  };
+};
+
+const loadStoredOpportunityTree = () => {
+  try {
+    const saved = localStorage.getItem("opportunityTree");
+    return saved ? JSON.parse(saved) : null;
+  } catch (error) {
+    console.error("[OST] Failed to load stored opportunityTree:", error);
+    return null;
+  }
+};
+
+const createInitialAnalyses = () => {
+  const seed = createSeedDiscoveryAnalysis();
+  const storedOpportunityTree = loadStoredOpportunityTree();
+
+  if (!storedOpportunityTree || !Array.isArray(seed.outcomes) || seed.outcomes.length === 0) {
+    return [seed];
+  }
+
+  return [{
+    ...seed,
+    outcomes: seed.outcomes.map((outcome, index) =>
+      index === 0 ? { ...outcome, opportunityTree: storedOpportunityTree } : outcome
+    ),
+  }];
+};
 
 // Migrate old analysis data to current structure
 const migrateAnalysis = (analysis) => {
@@ -507,6 +740,41 @@ const migrateAnalysis = (analysis) => {
     secureMode: analysis.secureMode ?? false,
     language: analysis.language ?? "en",
   };
+
+  const hasDiscoveryPayload =
+    (Array.isArray(analysis.outcomes) && analysis.outcomes.length > 0) ||
+    !!analysis.discoveryTable ||
+    !!analysis.opportunityTree;
+
+  if (hasDiscoveryPayload) {
+    migrated.projectMode = "discovery";
+  }
+
+  const migratedName = (migrated.name || "").trim();
+  const shouldPinDiscoveryName =
+    hasDiscoveryPayload &&
+    (migratedName === "" ||
+      migratedName === "Untitled Discovery" ||
+      migratedName === "Sample: Dark Mode Toggle" ||
+      migratedName === DEFAULT_DISCOVERY_PROJECT_NAME);
+
+  if (shouldPinDiscoveryName) {
+    migrated.name = DEFAULT_DISCOVERY_PROJECT_NAME;
+    if (migrated.overview) {
+      migrated.overview = {
+        ...migrated.overview,
+        featureName: DEFAULT_DISCOVERY_PROJECT_NAME,
+      };
+    }
+  }
+
+  if (isSeedDiscoveryProject(migrated)) {
+    migrated.isSeedDiscoveryProject = true;
+    migrated.name = DEFAULT_DISCOVERY_PROJECT_NAME;
+    if (migrated.overview) {
+      migrated.overview = { ...migrated.overview, featureName: DEFAULT_DISCOVERY_PROJECT_NAME };
+    }
+  }
 
   // Migrate old mapping.figmaUrl to designRefs
   if (!migrated.designRefs || !Array.isArray(migrated.designRefs?.references)) {
@@ -5100,6 +5368,16 @@ const DiscoveryTableSection = ({ data, outcomeName, onChange }) => {
   const updateCell = (rowId, columnId, value) => {
     updateData({ rows: tableData.rows.map(row => row.id === rowId ? { ...row, cells: { ...row.cells, [columnId]: value } } : row) });
   };
+  const updateAiCell = (rowId, columnId, value) => {
+    const teamKey = columnId + "_team";
+    updateData({
+      rows: tableData.rows.map((row) =>
+        row.id === rowId
+          ? { ...row, cells: { ...row.cells, [columnId]: value, [teamKey]: value } }
+          : row
+      ),
+    });
+  };
   const deleteRow = (rowId) => { updateData({ rows: tableData.rows.filter(row => row.id !== rowId) }); };
   const addColumn = () => {
     const newCol = { id: generateId(), name: "New Column", visible: true };
@@ -5123,9 +5401,11 @@ const DiscoveryTableSection = ({ data, outcomeName, onChange }) => {
   const handleDragEnd = () => { setDraggedRowIndex(null); };
 
   const visibleColumns = tableData.columns.filter(col => col.visible);
+  const minWidths = { col_opp: 180, col_rprio: 80, col_iprio: 80, col_obj: 160, col_about: 180, col_impact: 140, col_dk: 160, col_se: 160, col_proto: 140, col_b2b: 140, col_sol: 180, col_exp: 180 };
+  const tableWidth = 40 + visibleColumns.reduce((total, col) => total + (columnWidths[col.id] || minWidths[col.id] || 140), 0) + 40;
 
   return (
-    <div>
+    <div className="min-w-0">
       {outcomeName && (
         <div className="mb-4 px-1">
           <div className="flex items-center gap-2">
@@ -5171,12 +5451,11 @@ const DiscoveryTableSection = ({ data, outcomeName, onChange }) => {
           </button>
         </div>
       ) : (
-        <div className="overflow-x-auto border border-slate-200 dark:border-slate-700 rounded-lg">
-          <table ref={tableRef} className="w-full" style={{ tableLayout: 'fixed' }}>
+        <div className="w-full max-w-full min-w-0 overflow-x-auto border border-slate-200 dark:border-slate-700 rounded-lg">
+          <table ref={tableRef} className="table-fixed" style={{ tableLayout: 'fixed', width: `${tableWidth}px` }}>
             <colgroup>
               <col style={{ width: '40px' }} />
               {visibleColumns.map((col) => {
-                const minWidths = { col_opp: 180, col_rprio: 80, col_iprio: 80, col_obj: 160, col_about: 180, col_impact: 140, col_dk: 160, col_se: 160, col_proto: 140, col_b2b: 140, col_sol: 180, col_exp: 180 };
                 const w = columnWidths[col.id] || minWidths[col.id] || 140;
                 return <col key={col.id} style={{ width: w + 'px', minWidth: (minWidths[col.id] || 140) + 'px' }} />;
               })}
@@ -5256,7 +5535,7 @@ const DiscoveryTableSection = ({ data, outcomeName, onChange }) => {
                             <div className={showAiSuggestions ? "border-t border-slate-200 dark:border-slate-600 pt-1.5" : ""}>
                               <textarea
                                 value={teamValue}
-                                onChange={(e) => { updateCell(row.id, teamKey, e.target.value); e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
+                                onChange={(e) => { updateAiCell(row.id, col.id, e.target.value); e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
                                 ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
                                 className="w-full px-1 py-1 text-xs border-none bg-transparent text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-300 dark:focus:ring-blue-600 rounded resize-none overflow-hidden"
                                 placeholder=""
@@ -5293,16 +5572,28 @@ const DiscoveryTableSection = ({ data, outcomeName, onChange }) => {
 // --- Main App ---
 
 export default function RequirementAnalyzer() {
-  const [analyses, setAnalyses] = useState([createBlankAnalysis("Sample: Dark Mode Toggle")]);
+  const [analyses, setAnalyses] = useState(() => createInitialAnalyses());
   const [dataLoaded, setDataLoaded] = useState(false);
   const [activeId, setActiveId] = useState(() => analyses[0]?.id);
   const [activeSection, setActiveSection] = useState(() => {
+    const storedMode = localStorage.getItem("appMode") || "discovery";
+    if (storedMode === "discovery") return "opportunityTree";
     const saved = localStorage.getItem("activeSection");
-    return saved || "overview";
+    if (saved === "sourceDocuments" || saved === "feedback") return "discoveryResearch";
+    if (saved) return saved;
+    return "overview";
+  });
+  const [activeResearchTab, setActiveResearchTab] = useState(() => {
+    const savedSection = localStorage.getItem("activeSection");
+    if (savedSection === "feedback") return "feedback";
+    const saved = localStorage.getItem("activeResearchTab");
+    return saved === "feedback" ? "feedback" : "documents";
   });
   const [showExport, setShowExport] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [actionsPanelOpen, setActionsPanelOpen] = useState(true);
+  const [actionsModalOpen, setActionsModalOpen] = useState(false);
+  const [githubTokenModalOpen, setGithubTokenModalOpen] = useState(false);
+  const [githubTokenModalScope, setGithubTokenModalScope] = useState("gist");
   const [phaseFilter, setPhaseFilter] = useState("All");
   const [githubToken, setGithubToken] = useState(() => localStorage.getItem("githubToken") || "");
   const [loadGistId, setLoadGistId] = useState("");
@@ -5338,7 +5629,7 @@ export default function RequirementAnalyzer() {
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("darkMode") === "true");
   
   // Global app mode: Discovery vs Design Specs
-  const [appMode, setAppMode] = useState(() => localStorage.getItem("appMode") || "design-specs");
+  const [appMode, setAppMode] = useState(() => localStorage.getItem("appMode") || "discovery");
 
   // Outcome wizard state
   const [outcomeWizardOpen, setOutcomeWizardOpen] = useState(false);
@@ -5346,7 +5637,16 @@ export default function RequirementAnalyzer() {
   const [outcomeWizardName, setOutcomeWizardName] = useState("");
   const [outcomeWizardConfirmed, setOutcomeWizardConfirmed] = useState(false);
   const [showArchivedOutcomes, setShowArchivedOutcomes] = useState(false);
+  const [outcomeActionsOpenFor, setOutcomeActionsOpenFor] = useState(null);
   const [editingProjectId, setEditingProjectId] = useState(null);
+
+  useEffect(() => {
+    localStorage.setItem("activeSection", activeSection);
+  }, [activeSection]);
+
+  useEffect(() => {
+    localStorage.setItem("activeResearchTab", activeResearchTab);
+  }, [activeResearchTab]);
 
   const closeOutcomeWizard = useCallback(() => {
     setOutcomeWizardOpen(false);
@@ -5354,12 +5654,45 @@ export default function RequirementAnalyzer() {
     setOutcomeWizardName("");
     setOutcomeWizardConfirmed(false);
   }, []);
-  
-  // AI Chat state (ephemeral — cleared on reload and task switch)
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatLoading, setChatLoading] = useState(false);
-  const [rightPanelTab, setRightPanelTab] = useState("actions"); // 'actions' | 'chat'
-  const chatEndRef = useRef(null);
+
+  const active = useMemo(() => analyses.find((a) => a.id === activeId) || null, [analyses, activeId]);
+  const activeOutcome = useMemo(
+    () => active?.outcomes?.find((o) => o.id === active.activeOutcomeId) || null,
+    [active]
+  );
+
+  useEffect(() => {
+    if (!activeOutcome?.opportunityTree) return;
+
+    try {
+      localStorage.setItem("opportunityTree", JSON.stringify(activeOutcome.opportunityTree));
+    } catch (error) {
+      console.error("[OST] Failed to persist opportunityTree:", error);
+    }
+  }, [activeOutcome?.opportunityTree]);
+
+  const updateActive = useCallback((section, value) => {
+    setAnalyses((prev) => prev.map((a) => {
+      if (a.id !== activeId) return a;
+      if (a[section] && typeof a[section] === 'object' && !Array.isArray(a[section]) && value && typeof value === 'object' && !Array.isArray(value)) {
+        return {
+          ...a,
+          [section]: { ...a[section], ...value },
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return {
+        ...a,
+        [section]: value,
+        updatedAt: new Date().toISOString(),
+      };
+    }));
+  }, [activeId]);
+
+  const openGitHubTokenModal = useCallback((scope = "gist") => {
+    setGithubTokenModalScope(scope);
+    setGithubTokenModalOpen(true);
+  }, []);
   
   const fileInputRef = useRef(null);
 
@@ -5389,7 +5722,6 @@ export default function RequirementAnalyzer() {
           }
         } else {
           console.warn('[LOAD] API error, falling back to localStorage');
-          // Fallback to localStorage for local dev
           let saved = await secureStorage.getItem("requirementAnalyses");
           if (!saved) saved = localStorage.getItem("requirementAnalyses");
           if (saved) {
@@ -5405,7 +5737,6 @@ export default function RequirementAnalyzer() {
         }
       } catch (error) {
         console.error("[LOAD] Failed to load data:", error);
-        // Fallback to localStorage for local dev
         try {
           let saved = localStorage.getItem("requirementAnalyses");
           if (saved) {
@@ -5427,242 +5758,279 @@ export default function RequirementAnalyzer() {
     loadData();
   }, []); // Only run on mount
 
-  // Apply dark mode class to document
-  useEffect(() => {
-    console.log('Dark mode changed:', darkMode);
-    if (darkMode) {
-      document.documentElement.classList.add('dark');
-      console.log('Added dark class');
-    } else {
-      document.documentElement.classList.remove('dark');
-      console.log('Removed dark class');
-    }
-    localStorage.setItem("darkMode", darkMode);
-  }, [darkMode]);
-
-  // Load from URL share link on mount
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const sharedData = params.get("data");
-    if (sharedData) {
-      try {
-        const decoded = JSON.parse(atob(sharedData));
-        const migrated = migrateAnalysis(decoded);
-        setAnalyses([migrated]);
-        setActiveId(migrated.id);
-        window.history.replaceState({}, document.title, window.location.pathname);
-      } catch (err) {
-        console.error("Failed to decode shared link:", err);
-      }
-    }
-  }, []);
-
-  // Save to database whenever analyses change
-  const saveTimeoutRef = useRef(null);
-  useEffect(() => {
-    const saveData = async () => {
-      if (dataLoaded) {
-        console.log('[SAVE] Saving', analyses.length, 'projects to API...');
-        try {
-          const response = await fetch('/api/projects', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ projects: analyses })
-          });
-          if (response.ok) {
-            console.log('[SAVE] Saved to API');
-          } else {
-            console.warn('[SAVE] API save failed, saving to localStorage as backup');
-            localStorage.setItem("requirementAnalyses", JSON.stringify(analyses));
-          }
-        } catch (error) {
-          console.warn('[SAVE] API unreachable, saving to localStorage:', error);
-          localStorage.setItem("requirementAnalyses", JSON.stringify(analyses));
-        }
-      }
-    };
-    // Debounce saves to avoid hammering the API
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(saveData, 1000);
-    return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
-  }, [analyses, dataLoaded]);
-
-  // Poll for updates from other team members every 10 seconds
+  // Enforce a stable discovery baseline when stale browser-local snapshots exist.
   useEffect(() => {
     if (!dataLoaded) return;
-    const poll = setInterval(async () => {
-      try {
-        const response = await fetch('/api/projects');
-        if (!response.ok) return;
-        const rows = await response.json();
-        if (rows.length > 0) {
-          const projects = rows.map(r => migrateAnalysis(typeof r.data === 'string' ? JSON.parse(r.data) : r.data));
-          // Only update if data actually changed (compare by updated_at timestamps)
-          const remoteTimestamps = rows.map(r => r.updated_at).sort().join(',');
-          const localTimestamps = analyses.map(a => a.updatedAt || '').sort().join(',');
-          if (remoteTimestamps !== localTimestamps) {
-            console.log('[POLL] Remote changes detected, updating...');
-            setAnalyses(projects);
+    setAnalyses((prev) => {
+      let changed = false;
+      const seed = createSeedDiscoveryAnalysis();
+      const LEGACY_DISCOVERY_NAME = "Sample: Dark Mode Toggle";
+
+      // Keep legacy projects; we may recover outcomes from them.
+      let next = [...prev];
+
+      next = next.map((a) => {
+        const mode = a.projectMode || "design-specs";
+        if (mode !== "discovery") return a;
+        if (isSeedDiscoveryProject(a) && (a.name || "").trim() !== DEFAULT_DISCOVERY_PROJECT_NAME) {
+          changed = true;
+          return {
+            ...a,
+            isSeedDiscoveryProject: true,
+            name: DEFAULT_DISCOVERY_PROJECT_NAME,
+            overview: a.overview ? { ...a.overview, featureName: DEFAULT_DISCOVERY_PROJECT_NAME } : a.overview,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        const currentName = (a.name || "").trim();
+        if (currentName === "Untitled Discovery" || currentName === "") {
+          changed = true;
+          return {
+            ...a,
+            name: DEFAULT_DISCOVERY_PROJECT_NAME,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        return a;
+      });
+
+      const discoveryIdx = next.findIndex((a) => {
+        const mode = a.projectMode || "design-specs";
+        return mode === "discovery" && (a.name || "").trim() === DEFAULT_DISCOVERY_PROJECT_NAME;
+      });
+
+      if (discoveryIdx === -1) {
+        changed = true;
+        next = [seed, ...next];
+      } else {
+        const target = next[discoveryIdx];
+        const seededOutcome = seed.outcomes[0];
+        const existingOutcome = (target.outcomes || []).find((o) => o.name === DEFAULT_DISCOVERY_OUTCOME_NAME);
+        const hasSeedRows = !!existingOutcome?.discoveryTable?.rows?.length;
+
+        if (!hasSeedRows) {
+          changed = true;
+          const existingOutcomes = target.outcomes || [];
+          const outcomeId = existingOutcome?.id || seededOutcome.id;
+          const nextSeedOutcome = {
+            ...seededOutcome,
+            id: outcomeId,
+          };
+
+          const nextOutcomes = existingOutcome
+            ? existingOutcomes.map((o) => (o.id === existingOutcome.id ? nextSeedOutcome : o))
+            : [nextSeedOutcome, ...existingOutcomes];
+
+          const nextActiveOutcomeId =
+            target.activeOutcomeId && nextOutcomes.some((o) => o.id === target.activeOutcomeId)
+              ? target.activeOutcomeId
+              : nextOutcomes[0]?.id || outcomeId;
+
+          next[discoveryIdx] = {
+            ...target,
+            projectMode: "discovery",
+            outcomes: nextOutcomes,
+            activeOutcomeId: nextActiveOutcomeId,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+
+        // Recover outcomes from legacy discovery project into the B2B project.
+        const legacyProjects = next.filter((p) => {
+          const mode = p.projectMode || "design-specs";
+          return mode === "discovery" && (p.name || "").trim() === LEGACY_DISCOVERY_NAME;
+        });
+
+        if (legacyProjects.length > 0) {
+          const b2bProject = next[discoveryIdx];
+          const existingOutcomes = b2bProject.outcomes || [];
+          const existingNames = new Set(
+            existingOutcomes.map((o) => (o.name || "").trim().toLowerCase()).filter(Boolean)
+          );
+
+          const recovered = [];
+          for (const legacy of legacyProjects) {
+            for (const outcome of legacy.outcomes || []) {
+              const outcomeName = (outcome.name || "").trim();
+              if (!outcomeName) continue;
+
+              const hasRows = (outcome.discoveryTable?.rows?.length || 0) > 0;
+              const hasTreeOpps = (outcome.opportunityTree?.opportunities?.length || 0) > 0;
+              if (!hasRows && !hasTreeOpps) continue;
+
+              const key = outcomeName.toLowerCase();
+              if (existingNames.has(key)) continue;
+
+              recovered.push({
+                ...outcome,
+                id: generateId(),
+              });
+              existingNames.add(key);
+            }
+          }
+
+          if (recovered.length > 0) {
+            changed = true;
+            next[discoveryIdx] = {
+              ...b2bProject,
+              outcomes: [...existingOutcomes, ...recovered],
+              activeOutcomeId:
+                b2bProject.activeOutcomeId &&
+                [...existingOutcomes, ...recovered].some((o) => o.id === b2bProject.activeOutcomeId)
+                  ? b2bProject.activeOutcomeId
+                  : [...existingOutcomes, ...recovered][0]?.id || b2bProject.activeOutcomeId,
+              updatedAt: new Date().toISOString(),
+            };
+          }
+
+          if (legacyProjects.length > 0) {
+            changed = true;
+            next = next.filter((project) => {
+              const mode = project.projectMode || "design-specs";
+              return !(mode === "discovery" && (project.name || "").trim() === LEGACY_DISCOVERY_NAME);
+            });
           }
         }
-      } catch { /* ignore poll failures */ }
-    }, 10000);
-    return () => clearInterval(poll);
-  }, [dataLoaded, analyses]);
+      }
 
-  // Remove old secure mode preference (no longer needed)
+      return changed ? next : prev;
+    });
+  }, [dataLoaded]);
+
+  // Repair malformed discovery projects that have no outcomes after reload.
   useEffect(() => {
-    localStorage.removeItem("secureMode");
-  }, []);
+    if (!dataLoaded) return;
 
-  // Save active section to localStorage
-  useEffect(() => {
-    localStorage.setItem("activeSection", activeSection);
-  }, [activeSection]);
+    setAnalyses((prev) => {
+      let changed = false;
+      const seedOutcome = createSeedDiscoveryAnalysis().outcomes[0];
 
-  // Save GitHub token to localStorage
-  useEffect(() => {
-    if (githubToken) {
-      localStorage.setItem("githubToken", githubToken);
-    } else {
-      localStorage.removeItem("githubToken");
-    }
-  }, [githubToken]);
+      const next = prev.map((project) => {
+        const mode = project.projectMode || "design-specs";
+        if (mode !== "discovery") return project;
 
-  // Save GitHub AI key to localStorage
-  useEffect(() => {
-    if (githubAIKey) {
-      localStorage.setItem("githubAIKey", githubAIKey);
-    } else {
-      localStorage.removeItem("githubAIKey");
-    }
-  }, [githubAIKey]);
+        const outcomes = Array.isArray(project.outcomes) ? project.outcomes : [];
+        if (outcomes.length > 0) {
+          const hasActive = project.activeOutcomeId && outcomes.some((o) => o.id === project.activeOutcomeId);
+          if (hasActive) return project;
 
-  // Save GitHub Repository settings to localStorage
-  useEffect(() => {
-    if (githubRepoOwner) localStorage.setItem("githubRepoOwner", githubRepoOwner);
-    else localStorage.removeItem("githubRepoOwner");
-  }, [githubRepoOwner]);
-
-  useEffect(() => {
-    if (githubRepoName) localStorage.setItem("githubRepoName", githubRepoName);
-    else localStorage.removeItem("githubRepoName");
-  }, [githubRepoName]);
-
-  useEffect(() => {
-    localStorage.setItem("githubRepoBranch", githubRepoBranch);
-  }, [githubRepoBranch]);
-
-  // Initialize GitHub Sync instance
-  useEffect(() => {
-    if (!githubSyncRef.current) {
-      githubSyncRef.current = new GitHubSync({
-        token: githubToken,
-        owner: githubRepoOwner,
-        repo: githubRepoName,
-        branch: githubRepoBranch,
-        filePath: 'requirement-analyzer-data.json'
-      });
-
-      // Listen to sync status updates
-      githubSyncRef.current.addListener((status) => {
-        setGithubSyncStatus(status);
-      });
-    } else {
-      // Update configuration
-      githubSyncRef.current.updateConfig({
-        token: githubToken,
-        owner: githubRepoOwner,
-        repo: githubRepoName,
-        branch: githubRepoBranch,
-      });
-    }
-  }, [githubToken, githubRepoOwner, githubRepoName, githubRepoBranch]);
-
-  // Auto-save to GitHub when analyses change
-  useEffect(() => {
-    const saveToGitHub = async () => {
-      if (dataLoaded && githubSyncRef.current && githubSyncRef.current.isConfigured() && !hasSecureAnalysis) {
-        try {
-          const hybridStorage = new HybridStorage(githubSyncRef.current, 'requirementAnalyses');
-          await hybridStorage.save(analyses, false); // false = debounced auto-save
-        } catch (error) {
-          console.error('[GitHub Sync] Auto-save failed:', error);
+          changed = true;
+          return {
+            ...project,
+            activeOutcomeId: outcomes[0].id,
+            updatedAt: new Date().toISOString(),
+          };
         }
-      }
-    };
-    saveToGitHub();
-  }, [analyses, dataLoaded, hasSecureAnalysis]);
 
-  // Reset chat messages when switching tasks
+        changed = true;
+        const projectName = (project.name || "").toLowerCase();
+        const shouldUseSeed = projectName.includes("b2b") || projectName.includes("self service");
+        const fallbackOutcome = shouldUseSeed
+          ? { ...seedOutcome, id: generateId() }
+          : createOutcome(DEFAULT_DISCOVERY_OUTCOME_NAME);
+
+        return {
+          ...project,
+          outcomes: [fallbackOutcome],
+          activeOutcomeId: fallbackOutcome.id,
+          updatedAt: new Date().toISOString(),
+        };
+      });
+
+      return changed ? next : prev;
+    });
+  }, [dataLoaded]);
+
+  // If reload leaves the user on an empty discovery outcome, recover by selecting
+  // the first discovery outcome that has rows, but only when active outcome is invalid.
   useEffect(() => {
-    setChatMessages([]);
-    setChatLoading(false);
-  }, [activeId]);
+    if (!dataLoaded || appMode !== "discovery") return;
 
-  const active = useMemo(() => analyses.find((a) => a.id === activeId), [analyses, activeId]);
+    const currentProject = analyses.find((a) => a.id === activeId);
+    const currentOutcome = currentProject?.outcomes?.find((o) => o.id === currentProject?.activeOutcomeId);
+    if (currentOutcome) return;
 
-  // Ensure active project matches current mode
-  useEffect(() => {
-    if (!active) return;
-    
-    const activeProjectMode = active.projectMode || "design-specs";
-    if (activeProjectMode !== appMode) {
-      // Active project doesn't match current mode, switch to correct mode projects
-      const modeProjects = analyses.filter(a => (a.projectMode || "design-specs") === appMode);
-      if (modeProjects.length > 0) {
-        setActiveId(modeProjects[0].id);
-      } else {
-        // No projects in current mode, create one
-        const newProject = createBlankAnalysis(
-          appMode === "discovery" ? "Untitled Discovery" : "Untitled Design Task",
-          appMode
-        );
-        setAnalyses(prev => [newProject, ...prev]);
-        setActiveId(newProject.id);
+    let nextProjectId = null;
+    let nextOutcomeId = null;
+
+    for (const project of analyses) {
+      const mode = project.projectMode || "design-specs";
+      if (mode !== "discovery") continue;
+
+      const nonEmptyOutcome = (project.outcomes || []).find(
+        (o) => (o.discoveryTable?.rows?.length || 0) > 0
+      );
+
+      if (nonEmptyOutcome) {
+        nextProjectId = project.id;
+        nextOutcomeId = nonEmptyOutcome.id;
+        break;
       }
     }
-  }, [active, appMode, analyses]);
 
-  // Active outcome for discovery mode
-  const activeOutcome = useMemo(() => {
-    if (!active || !active.outcomes || !active.activeOutcomeId) return null;
-    return active.outcomes.find((o) => o.id === active.activeOutcomeId) || null;
-  }, [active]);
+    if (!nextProjectId || !nextOutcomeId) return;
 
-  const filteredAnalyses = useMemo(() => {
-    // Filter by project mode first
-    const modeFiltered = analyses.filter((a) => (a.projectMode || "design-specs") === appMode);
-    if (phaseFilter === "All") return modeFiltered;
-    if (phaseFilter === "Untagged") return modeFiltered.filter((a) => !a.phase);
-    return modeFiltered.filter((a) => a.phase === phaseFilter);
-  }, [analyses, phaseFilter, appMode]);
+    if (activeId !== nextProjectId) {
+      setActiveId(nextProjectId);
+    }
 
-  const updateActive = useCallback(
-    (sectionKey, value) => {
-      setAnalyses((prev) =>
-        prev.map((a) =>
-          a.id === activeId ? { ...a, [sectionKey]: value, updatedAt: new Date().toISOString() } : a
-        )
-      );
-    },
-    [activeId]
-  );
+    setAnalyses((prev) =>
+      prev.map((a) =>
+        a.id === nextProjectId && a.activeOutcomeId !== nextOutcomeId
+          ? { ...a, activeOutcomeId: nextOutcomeId, updatedAt: new Date().toISOString() }
+          : a
+      )
+    );
 
-  const updatePhase = useCallback(
-    (phase) => {
-      setAnalyses((prev) =>
-        prev.map((a) =>
-          a.id === activeId ? { ...a, phase, updatedAt: new Date().toISOString() } : a
-        )
-      );
-    },
-    [activeId]
-  );
+    if (activeSection !== "opportunityTree") {
+      setActiveSection("opportunityTree");
+    }
+  }, [dataLoaded, appMode, analyses, activeId, activeSection]);
 
-  // Sync discovery table opportunities → OST canvas (scoped to active outcome)
   const syncTableToOST = useCallback((tableData) => {
-    if (!tableData || !tableData.rows) return;
+    const parseCellEntries = (value) =>
+      String(value || "")
+        .split(/\n+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+
+    const mapRowToSolutions = (existingOpportunity, row) => {
+      const existingSolutions = Array.isArray(existingOpportunity?.solutions)
+        ? existingOpportunity.solutions
+        : [];
+      const solutionEntries = parseCellEntries(row.cells?.col_sol);
+      const experimentEntries = parseCellEntries(row.cells?.col_exp);
+
+      if (solutionEntries.length === 0 && experimentEntries.length === 0) {
+        return [];
+      }
+
+      const normalizedSolutionEntries =
+        solutionEntries.length > 0 ? solutionEntries : ["Proposed Solution"];
+
+      return normalizedSolutionEntries.map((solutionText, index) => {
+        const existingSolution = existingSolutions[index];
+        const existingExperiments = Array.isArray(existingSolution?.experiments)
+          ? existingSolution.experiments
+          : [];
+
+        const experimentsForSolution =
+          normalizedSolutionEntries.length === 1
+            ? experimentEntries
+            : experimentEntries[index]
+              ? [experimentEntries[index]]
+              : [];
+
+        return {
+          id: existingSolution?.id || `sol_${generateId()}`,
+          text: solutionText,
+          experiments: experimentsForSolution.map((experimentText, experimentIndex) => ({
+            id: existingExperiments[experimentIndex]?.id || `exp_${generateId()}`,
+            text: experimentText,
+          })),
+        };
+      });
+    };
 
     setAnalyses((prev) =>
       prev.map((a) => {
@@ -5676,26 +6044,27 @@ export default function RequirementAnalyzer() {
         const currentTree = outcome.opportunityTree || { outcome: { id: "outcome", text: outcome.name }, opportunities: [] };
         const existingOpps = currentTree.opportunities || [];
 
-        // Build map of existing opportunities by their source row ID
         const existingByRowId = {};
         existingOpps.forEach((opp) => {
           if (opp.sourceRowId) existingByRowId[opp.sourceRowId] = opp;
         });
 
-        // Create/update opportunities from table rows
         const newOpps = tableData.rows.map((row) => {
           const oppName = row.cells?.col_opp || "Untitled Opportunity";
           const existing = existingByRowId[row.id];
           if (existing) {
-            return { ...existing, text: oppName };
-          } else {
             return {
-              id: row.id.replace("row_", "opp_"),
-              sourceRowId: row.id,
+              ...existing,
               text: oppName,
-              solutions: [],
+              solutions: mapRowToSolutions(existing, row),
             };
           }
+          return {
+            id: row.id.replace("row_", "opp_"),
+            sourceRowId: row.id,
+            text: oppName,
+            solutions: mapRowToSolutions(null, row),
+          };
         });
 
         const newTree = { ...currentTree, opportunities: newOpps };
@@ -5714,13 +6083,12 @@ export default function RequirementAnalyzer() {
     if (!dataLoaded || !active || !activeOutcome) return;
     const table = activeOutcome.discoveryTable;
     const tree = activeOutcome.opportunityTree;
-    // Only sync if table has rows and OST has no opportunities (or no tree at all)
     if (table && table.rows && table.rows.length > 0) {
       if (!tree || !tree.opportunities || tree.opportunities.length === 0) {
         syncTableToOST(table);
       }
     }
-  }, [activeId, active?.activeOutcomeId, dataLoaded]); // Run after data loads or outcome switch
+  }, [activeId, active?.activeOutcomeId, dataLoaded]);
 
   // --- AI Chat ---
   const sendChatMessage = useCallback(async (userMessage) => {
@@ -5983,10 +6351,10 @@ Be concise and actionable. Respond in the same language the user writes in.`;
   }, [active, activeOutcome, updateActive]);
 
   const createNew = () => {
-    const newA = createBlankAnalysis(appMode === "discovery" ? "Untitled Discovery" : "Untitled Design Task", appMode);
+    const newA = createBlankAnalysis(appMode === "discovery" ? DEFAULT_DISCOVERY_PROJECT_NAME : "Untitled Design Task", appMode);
     setAnalyses((prev) => [newA, ...prev]);
     setActiveId(newA.id);
-    setActiveSection(appMode === "discovery" ? "discoveryTable" : "overview");
+    setActiveSection(appMode === "discovery" ? "opportunityTree" : "overview");
     setPhaseFilter("All");
   };
 
@@ -6005,7 +6373,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
 
   // --- Outcome CRUD ---
   const addOutcome = useCallback((name) => {
-    const newOutcome = createOutcome(name);
+    const newOutcome = createOutcome(name, { generateOpportunities: true });
     setAnalyses((prev) =>
       prev.map((a) => {
         if (a.id !== activeId) return a;
@@ -6061,6 +6429,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
   const updateName = (name) => {
     setAnalyses((prev) => prev.map((a) => {
       if (a.id === activeId) {
+        if (isSeedDiscoveryProject(a)) return a;
         return { 
           ...a, 
           name,
@@ -6070,6 +6439,14 @@ Be concise and actionable. Respond in the same language the user writes in.`;
       return a;
     }));
   };
+
+  const updatePhase = useCallback((phase) => {
+    setAnalyses((prev) =>
+      prev.map((a) =>
+        a.id === activeId ? { ...a, phase, updatedAt: new Date().toISOString() } : a
+      )
+    );
+  }, [activeId]);
 
   const handleExportMd = () => { if (active) setShowExport(true); };
 
@@ -6879,7 +7256,8 @@ Be concise and actionable. Respond in the same language the user writes in.`;
 
   const handleSaveToGist = async () => {
     if (!active || !githubToken) {
-      alert("Please enter your GitHub token first.");
+      openGitHubTokenModal("gist");
+      alert("Add your GitHub token to continue with Gist sync.");
       return;
     }
     
@@ -6923,6 +7301,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
   // GitHub Repository Sync handlers
   const handleLoadFromGitHub = async () => {
     if (!githubSyncRef.current || !githubSyncRef.current.isConfigured()) {
+      if (!githubToken) openGitHubTokenModal("repo");
       alert("Please configure GitHub repository settings first:\n- Owner (your GitHub username or org)\n- Repository name\n- Personal access token");
       return;
     }
@@ -6946,6 +7325,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
 
   const handleSaveToGitHub = async () => {
     if (!githubSyncRef.current || !githubSyncRef.current.isConfigured()) {
+      if (!githubToken) openGitHubTokenModal("repo");
       alert("Please configure GitHub repository settings first.");
       return;
     }
@@ -7123,6 +7503,23 @@ Be concise and actionable. Respond in the same language the user writes in.`;
     return counts;
   }, [analyses]);
 
+  const filteredAnalyses = useMemo(() => {
+    return analyses.filter((a) => {
+      if (phaseFilter === "All") return true;
+      if (phaseFilter === "Untagged") return !a.phase;
+      return a.phase === phaseFilter;
+    });
+  }, [analyses, phaseFilter]);
+
+  const renderOpportunityTreeSection = () => {
+    if (!activeOutcome) return <div className="text-center py-12 text-slate-500 dark:text-slate-400"><p className="text-sm">No outcome selected.</p><p className="text-xs mt-1">Open Edit OST to create or update the current tree.</p></div>;
+    return <OSTCanvas outcomeId={activeOutcome.id} data={activeOutcome.opportunityTree} onChange={(v) => updateOutcomeField(activeOutcome.id, "opportunityTree", v)} />;
+  };
+
+  const isDiscoveryCanvasView = appMode === "discovery" && activeSection === "opportunityTree";
+  const showSidebarToggle = !sidebarOpen;
+  const showSidebar = sidebarOpen;
+
   const renderSection = () => {
     const lang = active.language || "en";
     switch (activeSection) {
@@ -7136,7 +7533,11 @@ Be concise and actionable. Respond in the same language the user writes in.`;
         pasteModalOpen={pasteModalOpen}
         onChange={(v) => {
           // Sync task name when feature name changes
-          if (v.featureName !== active.overview.featureName) {
+            if (v.featureName !== active.overview.featureName) {
+              if (isSeedDiscoveryProject(active)) {
+                updateActive("overview", { ...v, featureName: DEFAULT_DISCOVERY_PROJECT_NAME });
+                return;
+              }
             setAnalyses((prev) => prev.map((a) => 
               a.id === activeId ? { ...a, name: v.featureName, overview: v, updatedAt: new Date().toISOString() } : a
             ));
@@ -7170,10 +7571,9 @@ Be concise and actionable. Respond in the same language the user writes in.`;
         if (!activeOutcome) return <div className="text-center py-12 text-slate-500 dark:text-slate-400"><p className="text-sm">No outcome selected.</p><p className="text-xs mt-1">Create an outcome in the sidebar to start.</p></div>;
         return <DiscoveryTableSection data={activeOutcome.discoveryTable} outcomeName={activeOutcome.name} onChange={(v) => { updateOutcomeField(activeOutcome.id, "discoveryTable", v); syncTableToOST(v); }} />;
       }
-      case "opportunityTree": {
-        if (!activeOutcome) return <div className="text-center py-12 text-slate-500 dark:text-slate-400"><p className="text-sm">No outcome selected.</p><p className="text-xs mt-1">Create an outcome in the sidebar to start.</p></div>;
-        return <OSTCanvas data={activeOutcome.opportunityTree} onChange={(v) => updateOutcomeField(activeOutcome.id, "opportunityTree", v)} />;
-      }
+      case "discoveryResearch":
+        return activeResearchTab === "feedback" ? <FeedbackSection /> : <DocumentsSection />;
+      case "opportunityTree": return null;
       case "sourceDocuments": return <DocumentsSection />;
       case "feedback": return <FeedbackSection />;
       default: return null;
@@ -7184,33 +7584,23 @@ Be concise and actionable. Respond in the same language the user writes in.`;
     <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
       {/* Top bar - spans full width */}
       <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-6 py-3">
-        <div className="flex flex-col gap-3">
-          {/* Row 1: Sidebar toggle + Name + Mode Switcher + controls */}
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setSidebarOpen(!sidebarOpen)} 
-              className="p-2 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-300 dark:hover:border-slate-500 transition-colors" 
-              title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <rect x="3" y="3" width="7" height="18" rx="1" strokeWidth={2} opacity={sidebarOpen ? 1 : 0.3} />
-                <rect x="14" y="3" width="7" height="18" rx="1" strokeWidth={2} />
-              </svg>
-            </button>
+        {appMode === "discovery" ? (
+          <div className="flex items-center justify-between gap-4">
             <ModeSwitch 
               mode={appMode} 
               onChange={(newMode) => {
                 setAppMode(newMode);
                 localStorage.setItem("appMode", newMode);
-                setActiveSection(newMode === "discovery" ? "discoveryTable" : "overview");
-                // Switch to first project in the new mode, or create one if none exist
+                setActiveSection(newMode === "discovery" ? "opportunityTree" : "overview");
+                if (newMode === "discovery") {
+                  setActiveResearchTab("documents");
+                }
                 const modeProjects = analyses.filter(a => (a.projectMode || "design-specs") === newMode);
                 if (modeProjects.length > 0) {
                   setActiveId(modeProjects[0].id);
                 } else {
-                  // No projects in this mode, create a new one
                   const newProject = createBlankAnalysis(
-                    newMode === "discovery" ? "Untitled Discovery" : "Untitled Design Task",
+                    newMode === "discovery" ? DEFAULT_DISCOVERY_PROJECT_NAME : "Untitled Design Task",
                     newMode
                   );
                   setAnalyses(prev => [newProject, ...prev]);
@@ -7218,19 +7608,60 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                 }
               }} 
             />
-            <div className="flex items-center gap-2 ml-auto shrink-0">
-              {active.phase && appMode !== "discovery" && <VersionBadge version={active.phase} />}
-                {appMode !== "discovery" && (
-                  <>
-                    <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all ${completion === 100 ? "bg-emerald-500" : "bg-slate-400"}`}
-                        style={{ width: `${completion}%` }}
-                      />
-                    </div>
-                    <span className="text-xs text-slate-400 w-10">{tasksFilled}/{tasksTotal}</span>
-                  </>
-                )}
+            <div className="flex items-center gap-6 shrink-0 text-sm">
+              <button
+                onClick={() => {
+                  setActiveResearchTab("documents");
+                  setActiveSection("discoveryResearch");
+                }}
+                className={`transition-colors ${activeSection === "discoveryResearch" ? "text-slate-900 dark:text-slate-100 font-medium" : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"}`}
+              >
+                Research data
+              </button>
+              <button
+                onClick={() => setActiveSection("opportunityTree")}
+                className={`transition-colors ${(activeSection === "opportunityTree" || activeSection === "discoveryTable") ? "text-slate-900 dark:text-slate-100 font-medium" : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"}`}
+              >
+                OST
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-4">
+              <ModeSwitch 
+                mode={appMode} 
+                onChange={(newMode) => {
+                  setAppMode(newMode);
+                  localStorage.setItem("appMode", newMode);
+                  setActiveSection(newMode === "discovery" ? "opportunityTree" : "overview");
+                  if (newMode === "discovery") {
+                    setActiveResearchTab("documents");
+                  }
+                  const modeProjects = analyses.filter(a => (a.projectMode || "design-specs") === newMode);
+                  if (modeProjects.length > 0) {
+                    setActiveId(modeProjects[0].id);
+                  } else {
+                    const newProject = createBlankAnalysis(
+                      newMode === "discovery" ? DEFAULT_DISCOVERY_PROJECT_NAME : "Untitled Design Task",
+                      newMode
+                    );
+                    setAnalyses(prev => [newProject, ...prev]);
+                    setActiveId(newProject.id);
+                  }
+                }} 
+              />
+              <div className="flex items-center gap-2 ml-auto shrink-0">
+                {active.phase && <VersionBadge version={active.phase} />}
+                <>
+                  <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${completion === 100 ? "bg-emerald-500" : "bg-slate-400"}`}
+                      style={{ width: `${completion}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-slate-400 w-10">{tasksFilled}/{tasksTotal}</span>
+                </>
                 <button
                   onClick={() => setDarkMode(!darkMode)}
                   className="p-2 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-300 dark:hover:border-slate-500 transition-colors"
@@ -7247,45 +7678,16 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                   )}
                 </button>
                 <button
-                  onClick={() => { setActionsPanelOpen(!actionsPanelOpen); if (!actionsPanelOpen && appMode === "discovery") setRightPanelTab("chat"); }}
-                  className="p-2 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-300 dark:hover:border-slate-500 transition-colors"
-                  title={actionsPanelOpen ? "Close panel" : "Open panel"}
+                  onClick={() => setActionsModalOpen(true)}
+                  className="px-3 py-2 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-300 dark:hover:border-slate-500 transition-colors text-sm font-medium"
+                  title="Open actions"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <rect x="3" y="3" width="7" height="18" rx="1" strokeWidth={2} />
-                    <rect x="14" y="3" width="7" height="18" rx="1" strokeWidth={2} opacity={actionsPanelOpen ? 1 : 0.3} />
-                  </svg>
+                  Actions
                 </button>
+              </div>
             </div>
-          </div>
-          {/* Row 2: Section nav pills */}
-          <div className="flex gap-1 flex-wrap items-center">
-            {appMode === "discovery" ? (
-              // Discovery mode: unified tabs with dark background for active
-              <>
-                {DISCOVERY_SECTIONS.map((s) => {
-                  const lang = active.language || "en";
-                  const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
-                  const isActive = activeSection === s.id;
-                  
-                  return (
-                    <button
-                      key={s.id}
-                      onClick={() => setActiveSection(s.id)}
-                      className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                        isActive
-                          ? "bg-slate-800 dark:bg-slate-700 text-white"
-                          : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                      }`}
-                    >
-                      {t.sections[s.id] || s.label}
-                    </button>
-                  );
-                })}
-              </>
-            ) : (
-              // Design mode: use Pill components
-              SECTIONS.map((s) => {
+            <div className="flex gap-2 flex-wrap items-center justify-between">
+              {SECTIONS.map((s) => {
                 const lang = active.language || "en";
                 const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
                 const getCountText = () => {
@@ -7312,44 +7714,74 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                     {t.sections[s.id] || s.label}
                   </Pill>
                 );
-              })
-            )}
+              })}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Below header: Sidebar + Content + Right Panel */}
       <div className="flex flex-1 min-h-0">
+      {showSidebarToggle && (
+        <div className="w-12 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex items-start justify-center shrink-0 pt-3">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="p-2 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-300 dark:hover:border-slate-500 transition-colors"
+            title="Show projects panel"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <rect x="3" y="3" width="7" height="18" rx="1" strokeWidth={2} />
+              <rect x="14" y="3" width="7" height="18" rx="1" strokeWidth={2} opacity={0.3} />
+            </svg>
+          </button>
+        </div>
+      )}
       {/* Sidebar */}
-      {sidebarOpen && (
+      {showSidebar && (
         <div className="w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col shrink-0">
 
-          {/* Phase filter */}
-          <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-700">
-            <div className="flex gap-1 flex-wrap">
-              {["All", ...VERSION_PHASES.filter((v) => v !== "Cut"), "Untagged"].map((f) => {
-                const count = phaseCounts[f] || 0;
-                if (f !== "All" && count === 0) return null;
-                const isActive = phaseFilter === f;
-                const colors = VERSION_COLORS[f];
-                return (
-                  <button
-                    key={f}
-                    onClick={() => setPhaseFilter(f)}
-                    className={`px-2 py-0.5 text-xs rounded-full transition-colors ${
-                      isActive
-                        ? colors
-                          ? `${colors.bg} ${colors.text} font-medium`
-                          : "bg-slate-800 text-white font-medium"
-                        : "text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
-                    }`}
-                  >
-                    {f} {count > 0 && <span className="opacity-60">{count}</span>}
-                  </button>
-                );
-              })}
-            </div>
+          <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Projects</div>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="p-1.5 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-600 rounded-md hover:border-slate-300 dark:hover:border-slate-500 transition-colors"
+              title="Hide projects panel"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <rect x="3" y="3" width="7" height="18" rx="1" strokeWidth={2} opacity={0.3} />
+                <rect x="14" y="3" width="7" height="18" rx="1" strokeWidth={2} />
+              </svg>
+            </button>
           </div>
+
+          {/* Phase filter */}
+          {appMode !== "discovery" && (
+            <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-700">
+              <div className="flex gap-1 flex-wrap">
+                {["All", ...VERSION_PHASES.filter((v) => v !== "Cut"), "Untagged"].map((f) => {
+                  const count = phaseCounts[f] || 0;
+                  if (f !== "All" && count === 0) return null;
+                  const isActive = phaseFilter === f;
+                  const colors = VERSION_COLORS[f];
+                  return (
+                    <button
+                      key={f}
+                      onClick={() => setPhaseFilter(f)}
+                      className={`px-2 py-0.5 text-xs rounded-full transition-colors ${
+                        isActive
+                          ? colors
+                            ? `${colors.bg} ${colors.text} font-medium`
+                            : "bg-slate-800 text-white font-medium"
+                          : "text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
+                      }`}
+                    >
+                      {f} {count > 0 && <span className="opacity-60">{count}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto py-2">
             {filteredAnalyses.map((a) => {
@@ -7360,7 +7792,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                   onClick={() => { 
                     if (a.id !== activeId) {
                       setActiveId(a.id); 
-                      setActiveSection(appMode === "discovery" ? "discoveryTable" : "overview");
+                      setActiveSection(appMode === "discovery" ? "opportunityTree" : "overview");
                     }
                   }}
                   onDoubleClick={() => setEditingProjectId(a.id)}
@@ -7374,7 +7806,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                     </div>
                   )}
                   <div className="flex items-start justify-between gap-1">
-                    {editingProjectId === a.id ? (
+                    {editingProjectId === a.id && !isSeedDiscoveryProject(a) ? (
                       <input
                         autoFocus
                         className="text-sm font-medium text-slate-700 dark:text-slate-200 flex-1 bg-white dark:bg-slate-600 border border-indigo-300 dark:border-indigo-600 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-indigo-400"
@@ -7392,7 +7824,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                         onClick={(e) => { if (a.id === activeId) { e.stopPropagation(); setEditingProjectId(a.id); } }}
                         title={a.id === activeId ? "Click to rename" : ""}
                       >
-                        {a.name || (appMode === "discovery" ? "Untitled Discovery" : "Untitled Design Task")}
+                        {a.name || (appMode === "discovery" ? DEFAULT_DISCOVERY_PROJECT_NAME : "Untitled Design Task")}
                       </span>
                     )}
                     <div className="flex items-center gap-1 shrink-0">
@@ -7464,12 +7896,34 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                     )}
 
                     {/* + New Outcome button */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setOutcomeWizardOpen(true); setOutcomeWizardStep(1); setOutcomeWizardName(""); setOutcomeWizardConfirmed(false); }}
-                      className="ml-4 px-2.5 py-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-md transition-colors w-full text-left"
-                    >
-                      + New Outcome
-                    </button>
+                    <div className="ml-4 mt-1 relative">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOutcomeActionsOpenFor((prev) => (prev === a.id ? null : a.id));
+                        }}
+                        className="px-2.5 py-1 text-[11px] text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md transition-colors"
+                      >
+                        Outcome actions {outcomeActionsOpenFor === a.id ? "⌄" : "⌃"}
+                      </button>
+                      {outcomeActionsOpenFor === a.id && (
+                        <div className="absolute left-0 mt-1 min-w-[11rem] rounded-md border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg z-20 p-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOutcomeActionsOpenFor(null);
+                              setOutcomeWizardOpen(true);
+                              setOutcomeWizardStep(1);
+                              setOutcomeWizardName("");
+                              setOutcomeWizardConfirmed(false);
+                            }}
+                            className="w-full text-left px-2.5 py-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded"
+                          >
+                            + New Outcome
+                          </button>
+                        </div>
+                      )}
+                    </div>
 
 
                   </div>
@@ -7498,24 +7952,18 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                 {/* GitHub Gist Sync - Only when current analysis doesn't have secure mode */}
                 {!active?.secureMode && gistExpanded && (
                   <div className="space-y-2 mb-3 pb-3 border-b border-slate-200 dark:border-slate-700">
-                    {/* GitHub Token */}
-                    <div>
-                      <label className="text-sm text-slate-700 dark:text-slate-200 mb-1 block font-medium">GitHub Token</label>
-                      <input
-                        type="password"
-                        placeholder="ghp_..."
-                        value={githubToken}
-                        onChange={(e) => setGithubToken(e.target.value)}
-                        className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400 dark:focus:ring-slate-500"
-                      />
-                      <a
-                        href="https://github.com/settings/tokens/new?description=Requirement%20Analyzer&scopes=gist"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline mt-1 inline-block"
-                      >
-                        Create token
-                      </a>
+                    <div className="p-2.5 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/40">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-slate-600 dark:text-slate-300">
+                          {githubToken ? "GitHub token is configured" : "GitHub token is required for Gist sync"}
+                        </span>
+                        <button
+                          onClick={() => openGitHubTokenModal("gist")}
+                          className="px-2 py-1 text-xs border border-slate-300 dark:border-slate-600 rounded text-slate-700 dark:text-slate-200 hover:border-slate-400 dark:hover:border-slate-500"
+                        >
+                          {githubToken ? "Update token" : "Add token"}
+                        </button>
+                      </div>
                     </div>
                     
                     {/* Save to Gist */}
@@ -7563,25 +8011,19 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                     <div className="text-xs text-slate-600 dark:text-slate-400 mb-2 p-2 bg-blue-50 dark:bg-slate-700 rounded">
                       💾 <strong>Auto-saves all analyses</strong> to your GitHub repository with version history
                     </div>
-                    
-                    {/* GitHub Token */}
-                    <div>
-                      <label className="text-sm text-slate-700 dark:text-slate-200 mb-1 block font-medium">GitHub Token</label>
-                      <input
-                        type="password"
-                        placeholder="ghp_..."
-                        value={githubToken}
-                        onChange={(e) => setGithubToken(e.target.value)}
-                        className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400 dark:focus:ring-slate-500"
-                      />
-                      <a
-                        href="https://github.com/settings/tokens/new?description=Requirement%20Analyzer&scopes=repo"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline mt-1 inline-block"
-                      >
-                        Create token (needs 'repo' scope)
-                      </a>
+
+                    <div className="p-2.5 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/40">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-slate-600 dark:text-slate-300">
+                          {githubToken ? "GitHub token is configured" : "GitHub token is required for repository sync"}
+                        </span>
+                        <button
+                          onClick={() => openGitHubTokenModal("repo")}
+                          className="px-2 py-1 text-xs border border-slate-300 dark:border-slate-600 rounded text-slate-700 dark:text-slate-200 hover:border-slate-400 dark:hover:border-slate-500"
+                        >
+                          {githubToken ? "Update token" : "Add token"}
+                        </button>
+                      </div>
                     </div>
                     
                     {/* Repository Owner */}
@@ -7702,76 +8144,97 @@ Be concise and actionable. Respond in the same language the user writes in.`;
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
-        {activeSection === "opportunityTree" || activeSection === "sourceDocuments" || activeSection === "feedback" ? (
-          <div className="h-full p-6">{renderSection()}</div>
-        ) : (
-          <div className={activeSection === "mapping" || activeSection === "discoveryTable" ? "px-6 py-8" : "max-w-2xl mx-auto px-6 py-8"}>
-            {renderSection()}
+      <div className="flex-1 min-w-0 min-h-0 relative">
+        {appMode === "discovery" && (activeSection === "opportunityTree" || activeSection === "discoveryTable") && (
+          <div className="absolute top-8 right-6 z-20">
+            <button
+              onClick={() => setActiveSection(activeSection === "discoveryTable" ? "opportunityTree" : "discoveryTable")}
+              className={`px-3 py-1.5 rounded-md border text-xs bg-white dark:bg-white shadow-sm transition-colors ${activeSection === "discoveryTable" ? "border-slate-300 dark:border-slate-300 text-slate-900 dark:text-slate-900" : "border-slate-200 dark:border-slate-300 text-slate-500 dark:text-slate-500 hover:text-slate-800 dark:hover:text-slate-800 hover:border-slate-300 dark:hover:border-slate-400"}`}
+            >
+              {activeSection === "discoveryTable" ? "View OST" : "Edit"}
+            </button>
           </div>
         )}
+
+        <div
+          className={activeSection === "opportunityTree" ? "absolute inset-0" : "absolute inset-0 opacity-0 pointer-events-none"}
+          aria-hidden={activeSection !== "opportunityTree"}
+        >
+          <div className="h-full">{renderOpportunityTreeSection()}</div>
+        </div>
+
+        {activeSection === "discoveryResearch" || activeSection === "sourceDocuments" || activeSection === "feedback" ? (
+          <div className="h-full p-6 overflow-y-auto">{renderSection()}</div>
+        ) : activeSection !== "opportunityTree" ? (
+          <div className={`overflow-y-auto h-full ${activeSection === "mapping" || activeSection === "discoveryTable" ? "px-6 py-8" : "max-w-2xl mx-auto px-6 py-8"}`}>
+            {renderSection()}
+          </div>
+        ) : null}
       </div>
 
-      {/* Right Panel — Actions / AI Chat tabs */}
-      {actionsPanelOpen && (
-        <div className="w-80 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col shrink-0">
-          <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
-            <div className="flex items-center justify-between">
-              <div className="flex gap-1">
-                {appMode !== "discovery" && (
-                  <button
-                    onClick={() => setRightPanelTab("actions")}
-                    className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
-                      rightPanelTab === "actions"
-                        ? "bg-slate-800 dark:bg-slate-600 text-white"
-                        : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
-                    }`}
-                  >
-                    {(TRANSLATIONS[active?.language] || TRANSLATIONS.en).chat.actions}
-                  </button>
-                )}
-                {!active?.secureMode && (
-                  <button
-                    onClick={() => setRightPanelTab("chat")}
-                    className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${
-                      rightPanelTab === "chat" || appMode === "discovery"
-                        ? "bg-slate-800 dark:bg-slate-600 text-white"
-                        : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
-                    }`}
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                    </svg>
-                    {appMode === "discovery" ? "Discovery AI" : (TRANSLATIONS[active?.language] || TRANSLATIONS.en).chat.title}
-                  </button>
-                )}
+      {/* Actions Modal */}
+      {actionsModalOpen && appMode !== "discovery" && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setActionsModalOpen(false)}>
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Actions</h3>
+              <button onClick={() => setActionsModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 text-xl leading-none">×</button>
+            </div>
+            <div className="overflow-y-auto p-5">
+              <ActionsSection data={active.actions || []} onChange={(v) => updateActive("actions", v)} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GitHub Token Modal */}
+      {githubTokenModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setGithubTokenModalOpen(false)}>
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">GitHub Token</h3>
+              <button onClick={() => setGithubTokenModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 text-xl leading-none">×</button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Paste your Personal Access Token when needed for {githubTokenModalScope === "repo" ? "repository sync" : "Gist sync"}.
+              </p>
+              <input
+                type="password"
+                placeholder="ghp_..."
+                value={githubToken}
+                onChange={(e) => setGithubToken(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400 dark:focus:ring-slate-500"
+              />
+              <div className="text-xs">
+                <a
+                  href={githubTokenModalScope === "repo" ? "https://github.com/settings/tokens/new?description=Requirement%20Analyzer&scopes=repo" : "https://github.com/settings/tokens/new?description=Requirement%20Analyzer&scopes=gist"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline"
+                >
+                  Create token {githubTokenModalScope === "repo" ? "(repo scope)" : "(gist scope)"}
+                </a>
               </div>
-              <button onClick={() => setActionsPanelOpen(false)} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300" title="Close panel">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
+            </div>
+            <div className="px-5 py-4 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between gap-2">
+              <button
+                onClick={() => setGithubToken("")}
+                className="px-3 py-2 text-sm text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded hover:border-slate-400 dark:hover:border-slate-500"
+              >
+                Clear
+              </button>
+              <button
+                onClick={() => {
+                  localStorage.setItem("githubToken", githubToken);
+                  setGithubTokenModalOpen(false);
+                }}
+                className="px-3 py-2 text-sm font-medium text-white bg-slate-800 dark:bg-slate-700 rounded hover:bg-slate-700 dark:hover:bg-slate-600"
+              >
+                Done
               </button>
             </div>
           </div>
-          {rightPanelTab === "actions" && appMode !== "discovery" ? (
-            <div className="flex-1 overflow-y-auto px-4 py-4">
-              <ActionsSection data={active.actions || []} onChange={(v) => updateActive("actions", v)} />
-            </div>
-          ) : (
-            <TaskChat 
-              language={active?.language || "en"}
-              chatMessages={chatMessages}
-              setChatMessages={setChatMessages}
-              chatLoading={chatLoading}
-              githubAIKey={githubAIKey}
-              setGitHubAIKey={setGitHubAIKey}
-              appMode={appMode}
-              sendChatMessage={sendChatMessage}
-              handleApplyProposal={handleApplyProposal}
-              chatEndRef={chatEndRef}
-              translations={TRANSLATIONS}
-            />
-          )}
         </div>
       )}
 
@@ -7971,7 +8434,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                     onClick={() => {
                       addOutcome(outcomeWizardName.trim());
                       closeOutcomeWizard();
-                      setActiveSection("discoveryTable");
+                      setActiveSection("opportunityTree");
                     }}
                     disabled={!outcomeWizardConfirmed}
                     className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
