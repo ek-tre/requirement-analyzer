@@ -32,6 +32,28 @@ import GitHubSync, { HybridStorage } from "./githubSync.js";
 
 const ENCRYPTION_KEY_NAME = "req_analyzer_key_v1";
 const ENCRYPTION_SALT = "requirement-analyzer-secure-2026"; // In production, use unique per-installation salt
+const RESEARCH_DOCUMENTS_KEY = "researchDocuments";
+
+const loadResearchDocuments = () => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RESEARCH_DOCUMENTS_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+
+    // Keep compatibility with legacy shape using opportunityId.
+    return parsed.map((doc) => {
+      if (!doc || typeof doc !== "object") return doc;
+      if (Array.isArray(doc.opportunityIds)) return doc;
+
+      const legacyId = typeof doc.opportunityId === "string" && doc.opportunityId ? doc.opportunityId : "";
+      return {
+        ...doc,
+        opportunityIds: legacyId ? [legacyId] : [],
+      };
+    });
+  } catch {
+    return [];
+  }
+};
 
 // Generate or retrieve encryption key
 const getEncryptionKey = async () => {
@@ -447,9 +469,122 @@ const EDGE_CASE_ITEMS = [
 ];
 
 const DEFAULT_DISCOVERY_OUTCOME_NAME = "Reduce operational friction for B2B admins";
+const DIAGRAM_VISIBLE_LIMIT = 3;
+
+const PRIORITY_TEXT_RANK = {
+  high: 0,
+  medium: 1,
+  low: 2,
+};
+
+const parseDiagramCellValue = (value) => {
+  if (typeof value === "boolean") return { hasValue: true, value };
+  if (typeof value === "number") return { hasValue: true, value: value !== 0 };
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "y", "on"].includes(normalized)) {
+      return { hasValue: true, value: true };
+    }
+    if (["false", "0", "no", "n", "off"].includes(normalized)) {
+      return { hasValue: true, value: false };
+    }
+  }
+  return { hasValue: false, value: false };
+};
+
+const parseDiagramFlag = (value) => {
+  const parsed = parseDiagramCellValue(value);
+  return parsed.hasValue ? parsed.value : null;
+};
+
+const normalizeDiagramValue = (value, fallback = false) => {
+  const parsed = parseDiagramCellValue(value);
+  return parsed.hasValue ? parsed.value : fallback;
+};
+
+const getPrioritySortMeta = (priorityValue, fallbackIndex) => {
+  const raw = String(priorityValue ?? "").trim();
+  const numeric = Number(raw);
+  if (Number.isFinite(numeric) && raw !== "") {
+    return { bucket: 0, rank: numeric, fallback: fallbackIndex };
+  }
+
+  const normalized = raw.toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(PRIORITY_TEXT_RANK, normalized)) {
+    return { bucket: 1, rank: PRIORITY_TEXT_RANK[normalized], fallback: fallbackIndex };
+  }
+
+  return { bucket: 2, rank: fallbackIndex, fallback: fallbackIndex };
+};
+
+const getTopPriorityRowIds = (rows, count = 3) => {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  return new Set(
+    safeRows
+      .map((row, index) => ({
+        id: row?.id,
+        index,
+        priority: getPrioritySortMeta(row?.cells?.col_rprio, index),
+      }))
+      .filter((item) => typeof item.id === "string" && item.id)
+      .sort((a, b) => {
+        if (a.priority.bucket !== b.priority.bucket) {
+          return a.priority.bucket - b.priority.bucket;
+        }
+        if (a.priority.rank !== b.priority.rank) {
+          return a.priority.rank - b.priority.rank;
+        }
+        return a.index - b.index;
+      })
+      .slice(0, count)
+      .map((item) => item.id)
+  );
+};
+
+const countVisibleInDiagram = (opportunities) =>
+  (Array.isArray(opportunities) ? opportunities : []).reduce(
+    (count, opp) => count + (opp?.showInDiagram === true ? 1 : 0),
+    0
+  );
+
+const getDefaultShowInDiagramForNewOpportunity = (existingOpportunities) =>
+  countVisibleInDiagram(existingOpportunities) < DIAGRAM_VISIBLE_LIMIT;
+
+const countDiagramRowsMarkedTrue = (rows) =>
+  (Array.isArray(rows) ? rows : []).reduce(
+    (count, row) => count + (parseDiagramFlag(row?.cells?.col_diagram) === true ? 1 : 0),
+    0
+  );
+
+const countShownInDiagram = (opportunities = []) =>
+  (Array.isArray(opportunities) ? opportunities : []).reduce(
+    (count, opp) => count + (normalizeDiagramValue(opp?.showInDiagram, false) ? 1 : 0),
+    0
+  );
+
+const withDiagramColumn = (columns = []) => {
+  const safeColumns = Array.isArray(columns) ? columns : [];
+  if (safeColumns.some((column) => column?.id === "col_diagram")) {
+    return safeColumns;
+  }
+
+  const diagramColumn = { id: "col_diagram", name: "Diagram", visible: true };
+  const insertAfterIndex = safeColumns.findIndex((column) => column?.id === "col_iprio");
+
+  if (insertAfterIndex === -1) {
+    return [...safeColumns, diagramColumn];
+  }
+
+  return [
+    ...safeColumns.slice(0, insertAfterIndex + 1),
+    diagramColumn,
+    ...safeColumns.slice(insertAfterIndex + 1),
+  ];
+};
 
 const DEFAULT_DISCOVERY_COLUMNS = [
   { id: "col_opp", name: "Opportunity", visible: true },
+  { id: "col_diagram", name: "Diagram", visible: true },
   { id: "col_rprio", name: "Research ranked prio", visible: true },
   { id: "col_iprio", name: "Internal prio level", visible: true },
   { id: "col_obj", name: "Business objectives", visible: true },
@@ -481,6 +616,7 @@ const createSeedDiscoveryAnalysis = () => {
       id: `row_${generateId()}`,
       cells: {
         col_opp: "One-Step Access to Core Information",
+        col_diagram: true,
         col_rprio: "1",
         col_iprio: "Now",
         col_obj: "Reduce task completion time for daily admin workflows",
@@ -500,6 +636,7 @@ const createSeedDiscoveryAnalysis = () => {
       id: `row_${generateId()}`,
       cells: {
         col_opp: "Universal Search with Smart Filters",
+        col_diagram: true,
         col_rprio: "2",
         col_iprio: "Next",
         col_obj: "Reduce time-to-find for account and subscription lookups",
@@ -519,6 +656,7 @@ const createSeedDiscoveryAnalysis = () => {
       id: `row_${generateId()}`,
       cells: {
         col_opp: "Bulk Operations for High-Volume Tasks",
+        col_diagram: true,
         col_rprio: "3",
         col_iprio: "Next",
         col_obj: "Enable efficient onboarding and offboarding at scale",
@@ -538,6 +676,7 @@ const createSeedDiscoveryAnalysis = () => {
       id: `row_${generateId()}`,
       cells: {
         col_opp: "Real-Time Performance and System Response",
+        col_diagram: false,
         col_rprio: "4",
         col_iprio: "Now",
         col_obj: "Ensure sub-2 second response times for key workflows",
@@ -557,6 +696,7 @@ const createSeedDiscoveryAnalysis = () => {
       id: `row_${generateId()}`,
       cells: {
         col_opp: "Role-Based Admin Access and Delegation",
+        col_diagram: false,
         col_rprio: "5",
         col_iprio: "Later",
         col_obj: "Support compliance and delegated admin management",
@@ -575,10 +715,12 @@ const createSeedDiscoveryAnalysis = () => {
   ];
 
   // Build OST opportunities from seed rows
+  const topPriorityRowIds = getTopPriorityRowIds(seedRows, 3);
   const opportunities = seedRows.map((row) => ({
     id: `opp_${generateId()}`,
     text: row.cells.col_opp,
     sourceRowId: row.id,
+    showInDiagram: topPriorityRowIds.has(row.id),
     solutions: [
       {
         id: `sol_${generateId()}`,
@@ -673,6 +815,7 @@ const createGeneratedDiscoveryTable = (outcomeName) => ({
       id: `row_${generateId()}`,
       cells: {
         col_opp: `Clarify top admin tasks for ${outcomeName}`,
+        col_diagram: "",
         col_rprio: "High",
         col_iprio: "Now",
         col_obj: "Identify the highest-frequency workflows to optimize first",
@@ -682,16 +825,17 @@ const createGeneratedDiscoveryTable = (outcomeName) => ({
         col_se: "",
         col_proto: "",
         col_b2b: "",
-        col_sol: "Task-focused dashboard and shortcuts",
-        col_sol_team: "Task-focused dashboard and shortcuts",
-        col_exp: "Interview 5 admins and rank task frequency",
-        col_exp_team: "Interview 5 admins and rank task frequency",
+        col_sol: "",
+        col_sol_team: "",
+        col_exp: "",
+        col_exp_team: "",
       },
     },
     {
       id: `row_${generateId()}`,
       cells: {
         col_opp: "Reduce navigation steps for common actions",
+        col_diagram: "",
         col_rprio: "Medium",
         col_iprio: "Next",
         col_obj: "Lower time-to-complete for repetitive operations",
@@ -701,16 +845,17 @@ const createGeneratedDiscoveryTable = (outcomeName) => ({
         col_se: "",
         col_proto: "",
         col_b2b: "",
-        col_sol: "Inline actions and bulk controls",
-        col_sol_team: "Inline actions and bulk controls",
-        col_exp: "Measure completion time before and after prototype",
-        col_exp_team: "Measure completion time before and after prototype",
+        col_sol: "",
+        col_sol_team: "",
+        col_exp: "",
+        col_exp_team: "",
       },
     },
     {
       id: `row_${generateId()}`,
       cells: {
         col_opp: "Increase confidence with clearer system status",
+        col_diagram: "",
         col_rprio: "Medium",
         col_iprio: "Later",
         col_obj: "Reduce uncertainty and support requests",
@@ -720,10 +865,10 @@ const createGeneratedDiscoveryTable = (outcomeName) => ({
         col_se: "",
         col_proto: "",
         col_b2b: "",
-        col_sol: "Status badges and activity timeline",
-        col_sol_team: "Status badges and activity timeline",
-        col_exp: "Validate trust and clarity with usability testing",
-        col_exp_team: "Validate trust and clarity with usability testing",
+        col_sol: "",
+        col_sol_team: "",
+        col_exp: "",
+        col_exp_team: "",
       },
     },
   ],
@@ -855,6 +1000,69 @@ const migrateAnalysis = (analysis) => {
     migrated.outcomes = [defaultOutcome];
     migrated.activeOutcomeId = defaultOutcome.id;
   }
+
+  migrated.outcomes = (migrated.outcomes || []).map((outcome) => {
+    const tableRows = Array.isArray(outcome?.discoveryTable?.rows) ? outcome.discoveryTable.rows : [];
+    const rankedRowIds = getTopPriorityRowIds(tableRows, 3);
+    const existingOpportunities = Array.isArray(outcome?.opportunityTree?.opportunities)
+      ? outcome.opportunityTree.opportunities
+      : [];
+
+    const opportunities = existingOpportunities.map((opp) => {
+      const sourceRow = tableRows.find((row) => row.id === opp?.sourceRowId);
+      const parsedRowDiagram = parseDiagramFlag(sourceRow?.cells?.col_diagram);
+      const showInDiagram = typeof opp?.showInDiagram === "boolean"
+        ? opp.showInDiagram
+        : parsedRowDiagram !== null
+          ? parsedRowDiagram
+          : rankedRowIds.has(sourceRow?.id);
+
+      return {
+        ...opp,
+        showInDiagram,
+      };
+    });
+
+    const opportunitiesByRowId = new Map(
+      opportunities
+        .filter((opp) => typeof opp?.sourceRowId === "string" && opp.sourceRowId)
+        .map((opp) => [opp.sourceRowId, opp])
+    );
+
+    const rows = tableRows.map((row) => {
+      const matchingOpp = opportunitiesByRowId.get(row.id);
+      const parsed = parseDiagramFlag(row?.cells?.col_diagram);
+      return {
+        ...row,
+        cells: {
+          ...(row?.cells || {}),
+          col_diagram: typeof matchingOpp?.showInDiagram === "boolean"
+            ? matchingOpp.showInDiagram
+            : parsed !== null
+              ? parsed
+              : rankedRowIds.has(row.id),
+        },
+      };
+    });
+
+    const discoveryTable = outcome?.discoveryTable
+      ? {
+          ...outcome.discoveryTable,
+          columns: withDiagramColumn(outcome.discoveryTable.columns || DEFAULT_DISCOVERY_COLUMNS),
+          rows,
+        }
+      : outcome?.discoveryTable;
+
+    return {
+      ...outcome,
+      discoveryTable,
+      opportunityTree: {
+        ...(outcome?.opportunityTree || { outcome: { id: "outcome", text: outcome?.name || "Desired Outcome" } }),
+        opportunities,
+      },
+    };
+  });
+
   // Clean up legacy top-level fields (keep for backward compat but outcomes is source of truth)
   delete migrated.discoveryTable;
   delete migrated.opportunityTree;
@@ -997,6 +1205,39 @@ const stopAudioRecording = () => {
       recognition = null;
     }
   });
+};
+
+const DEFAULT_MONTHLY_TOKEN_ALLOWANCE = 5000000;
+
+const estimateTokensFromChars = (charCount) => {
+  if (!charCount || charCount <= 0) return 0;
+  return Math.max(1, Math.ceil(charCount / 4));
+};
+
+const estimateAnalysisUsage = ({
+  inputChars = 0,
+  maxOutputTokens = 2000,
+  extraInputTokens = 0,
+  monthlyAllowance = DEFAULT_MONTHLY_TOKEN_ALLOWANCE,
+}) => {
+  const estimatedInputTokens = estimateTokensFromChars(inputChars) + extraInputTokens;
+  const estimatedTotalTokens = estimatedInputTokens + maxOutputTokens;
+  const monthlyUsagePercent = monthlyAllowance > 0
+    ? (estimatedTotalTokens / monthlyAllowance) * 100
+    : 0;
+
+  return {
+    estimatedInputTokens,
+    maxOutputTokens,
+    estimatedTotalTokens,
+    monthlyUsagePercent,
+  };
+};
+
+const formatPercent = (value) => {
+  if (value >= 1) return value.toFixed(2);
+  if (value >= 0.1) return value.toFixed(3);
+  return value.toFixed(4);
 };
 
 const analyzeWithGitHub = async (transcript, githubAIKey) => {
@@ -1695,14 +1936,14 @@ const Field = ({ label, hint, placeholder, value, onChange, multiline = false, r
     {hint && <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5">{hint}</p>}
     {multiline ? (
       <AutoResizeTextarea
-        className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-500 focus:border-slate-400 dark:focus:border-slate-500 resize-none bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
+        className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-500 focus:border-slate-400 dark:focus:border-slate-500 resize-none bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 placeholder-slate-300 dark:placeholder-slate-400"
         rows={rows} value={value || ""} onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
       />
     ) : (
       <input
         type="text"
-        className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-500 focus:border-slate-400 dark:focus:border-slate-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
+        className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-500 focus:border-slate-400 dark:focus:border-slate-500 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 placeholder-slate-300 dark:placeholder-slate-400"
         value={value || ""} onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
       />
@@ -4162,6 +4403,23 @@ const PasteAnalyzeModal = ({
   const [activeTab, setActiveTab] = useState('text');
   const [isDragging, setIsDragging] = useState(false);
   const imagePasteAreaRef = useRef(null);
+
+  const textEstimate = estimateAnalysisUsage({
+    inputChars: pastedText.trim().length,
+    maxOutputTokens: 2000,
+    extraInputTokens: 550,
+  });
+  const imageEstimate = estimateAnalysisUsage({
+    inputChars: 240,
+    maxOutputTokens: 2000,
+    extraInputTokens: 1400,
+  });
+  const pdfApproxChars = pastedPdf ? Math.min(120000, Math.round((pastedPdf.size / 1024) * 700)) : 0;
+  const pdfEstimate = estimateAnalysisUsage({
+    inputChars: pdfApproxChars,
+    maxOutputTokens: 2000,
+    extraInputTokens: 550,
+  });
   
   // Auto-focus image paste area when image tab is activated
   useEffect(() => {
@@ -4522,6 +4780,11 @@ const PasteAnalyzeModal = ({
                   >
                     {analyzing ? 'Analyzing...' : (githubAIKey ? 'Analyze with AI' : 'Analyze')}
                   </button>
+                  {githubAIKey && (
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                      Estimated usage: ~{textEstimate.estimatedTotalTokens.toLocaleString()} tokens ({formatPercent(textEstimate.monthlyUsagePercent)}% of a 5M monthly budget).
+                    </p>
+                  )}
                   {analyzing && <LoadingIndicator message="Analyzing text..." className="mt-3" />}
                 </>
               )}
@@ -4581,6 +4844,11 @@ const PasteAnalyzeModal = ({
                   >
                     {analyzing ? 'Analyzing...' : (githubAIKey ? 'Analyze with AI' : 'Analyze')}
                   </button>
+                  {githubAIKey && (
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                      Estimated usage: ~{imageEstimate.estimatedTotalTokens.toLocaleString()} tokens ({formatPercent(imageEstimate.monthlyUsagePercent)}% of a 5M monthly budget).
+                    </p>
+                  )}
                   {analyzing && <LoadingIndicator message="Analyzing image..." className="mt-3" />}
                 </>
               )}
@@ -4628,6 +4896,11 @@ const PasteAnalyzeModal = ({
                   >
                     {analyzing ? 'Analyzing...' : (githubAIKey ? 'Analyze with AI' : 'Analyze')}
                   </button>
+                  {githubAIKey && (
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                      Estimated usage: ~{pdfEstimate.estimatedTotalTokens.toLocaleString()} tokens ({formatPercent(pdfEstimate.monthlyUsagePercent)}% of a 5M monthly budget), based on file size.
+                    </p>
+                  )}
                   {analyzing && <LoadingIndicator message="Processing PDF..." className="mt-3" />}
                 </>
               )}
@@ -5024,6 +5297,11 @@ const AudioAnalysisModal = ({
 
   const hasTranscript = transcript && transcript.trim().length > 0;
   const hasSuggestions = Object.keys(aiSuggestions).length > 0;
+  const audioEstimate = estimateAnalysisUsage({
+    inputChars: transcript.trim().length,
+    maxOutputTokens: 1500,
+    extraInputTokens: 450,
+  });
   
   // Helper to get existing content for a field
   const getExistingContent = (section) => {
@@ -5134,6 +5412,11 @@ const AudioAnalysisModal = ({
                 >
                   {githubAIKey ? 'Analyze with AI' : 'Prepare Suggestions'}
                 </button>
+              )}
+              {!hasSuggestions && githubAIKey && (
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  Estimated usage: ~{audioEstimate.estimatedTotalTokens.toLocaleString()} tokens ({formatPercent(audioEstimate.monthlyUsagePercent)}% of a 5M monthly budget).
+                </p>
               )}
             </div>
           )}
@@ -5378,10 +5661,33 @@ const DiscoveryTableSection = ({ data, outcomeName, onChange }) => {
     document.body.style.userSelect = 'none';
   };
 
+  const handleReAnalyse = () => {
+    // Generate fresh template with same outcome name
+    const freshTemplate = createGeneratedDiscoveryTable(outcomeName);
+    
+    // Get existing opportunities by name (case-insensitive)
+    const existingOppNames = new Set(
+      (tableData.rows || [])
+        .map(row => String(row.cells?.col_opp || "").trim().toLowerCase())
+        .filter(Boolean)
+    );
+    
+    // Find new opportunities from template that don't already exist
+    const newRows = (freshTemplate.rows || []).filter(templateRow => {
+      const templateOppName = String(templateRow.cells?.col_opp || "").trim().toLowerCase();
+      return !existingOppNames.has(templateOppName);
+    });
+    
+    // Append new rows to current table
+    if (newRows.length > 0) {
+      updateData({ rows: [...tableData.rows, ...newRows] });
+    }
+  };
   const DEFAULT_COLUMNS = [
       { id: "col_opp", name: "Opportunity", visible: true },
       { id: "col_rprio", name: "Research ranked prio", visible: true },
       { id: "col_iprio", name: "Internal prio level", visible: true },
+      { id: "col_diagram", name: "Diagram", visible: true },
       { id: "col_obj", name: "Business objectives", visible: true },
       { id: "col_about", name: "About", visible: true },
       { id: "col_impact", name: "Impact", visible: true },
@@ -5393,8 +5699,11 @@ const DiscoveryTableSection = ({ data, outcomeName, onChange }) => {
       { id: "col_exp", name: "Experiment", visible: true },
   ];
 
-  const tableData = (data && data.rows) ? data : {
-    columns: DEFAULT_COLUMNS,
+  const tableData = (data && data.rows) ? {
+    ...data,
+    columns: withDiagramColumn(data.columns || DEFAULT_COLUMNS),
+  } : {
+    columns: withDiagramColumn(DEFAULT_COLUMNS),
     rows: [],
   };
 
@@ -5440,7 +5749,7 @@ const DiscoveryTableSection = ({ data, outcomeName, onChange }) => {
   const handleDragEnd = () => { setDraggedRowIndex(null); };
 
   const visibleColumns = tableData.columns.filter(col => col.visible);
-  const minWidths = { col_opp: 180, col_rprio: 80, col_iprio: 80, col_obj: 160, col_about: 180, col_impact: 140, col_dk: 160, col_se: 160, col_proto: 140, col_b2b: 140, col_sol: 180, col_exp: 180 };
+  const minWidths = { col_opp: 180, col_rprio: 120, col_iprio: 120, col_diagram: 90, col_obj: 160, col_about: 180, col_impact: 140, col_dk: 160, col_se: 160, col_proto: 140, col_b2b: 140, col_sol: 180, col_exp: 180 };
   const tableWidth = 40 + visibleColumns.reduce((total, col) => total + (columnWidths[col.id] || minWidths[col.id] || 140), 0) + 40;
 
   return (
@@ -5490,6 +5799,7 @@ const DiscoveryTableSection = ({ data, outcomeName, onChange }) => {
           </button>
         </div>
       ) : (
+        <>
         <div className="w-full max-w-full min-w-0 overflow-x-auto border border-slate-200 dark:border-slate-700 rounded-lg">
           <table ref={tableRef} className="table-fixed" style={{ tableLayout: 'fixed', width: `${tableWidth}px` }}>
             <colgroup>
@@ -5504,7 +5814,7 @@ const DiscoveryTableSection = ({ data, outcomeName, onChange }) => {
               <tr>
                 <th className="px-2 py-1.5 bg-slate-50 dark:bg-slate-800"></th>
                 <th className="px-2 py-1.5 text-left text-xs font-semibold text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border-l border-slate-200 dark:border-slate-700" colSpan={1}>Common needs level 1</th>
-                <th className="px-2 py-1.5 text-left text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 border-l border-slate-200 dark:border-slate-700" colSpan={2}>Priority (Now, Next, Later)</th>
+                <th className="px-2 py-1.5 text-left text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 border-l border-slate-200 dark:border-slate-700" colSpan={3}>Priority (Now, Next, Later)</th>
                 <th className="px-2 py-1.5 text-left text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 border-l border-slate-200 dark:border-slate-700" colSpan={1}>Objectives</th>
                 <th className="px-2 py-1.5 text-left text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 border-l border-slate-200 dark:border-slate-700" colSpan={2}>Analysis</th>
                 <th className="px-2 py-1.5 text-left text-xs font-semibold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/20 border-l border-slate-200 dark:border-slate-700" colSpan={4}>Evidence</th>
@@ -5525,8 +5835,8 @@ const DiscoveryTableSection = ({ data, outcomeName, onChange }) => {
               <tr>
                 <th className="px-2 py-2 text-left bg-slate-50 dark:bg-slate-800"></th>
                 {visibleColumns.map((col) => (
-                  <th key={col.id} className="px-2 py-2 text-left text-xs font-semibold text-slate-700 dark:text-slate-200 border-l border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 relative group" title={col.name}>
-                    <span className="truncate block pr-2">{col.name}</span>
+                  <th key={col.id} className="px-2 py-2 align-top text-left text-xs font-semibold text-slate-700 dark:text-slate-200 border-l border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 relative group" title={col.name}>
+                    <span className="block pr-2 whitespace-normal break-words leading-tight">{col.name}</span>
                     <div onMouseDown={(e) => handleResizeStart(e, col.id)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-400/50 group-hover:bg-slate-300/50 dark:group-hover:bg-slate-600/50" />
                   </th>
                 ))}
@@ -5543,16 +5853,28 @@ const DiscoveryTableSection = ({ data, outcomeName, onChange }) => {
                   {visibleColumns.map((col) => {
                     const sectionBg =
                       col.id === "col_opp" ? "bg-amber-50/40 dark:bg-amber-900/10" :
+                      col.id === "col_diagram" ? "bg-slate-100/50 dark:bg-slate-700/20" :
                       (col.id === "col_dk" || col.id === "col_se" || col.id === "col_proto" || col.id === "col_b2b") ? "bg-purple-50/40 dark:bg-purple-900/10" :
                       (col.id === "col_sol" || col.id === "col_exp") ? "bg-emerald-50/40 dark:bg-emerald-900/10" : "";
                     const isAiColumn = col.id === "col_sol" || col.id === "col_exp";
                     const isEvidenceColumn = col.id === "col_dk" || col.id === "col_se" || col.id === "col_proto" || col.id === "col_b2b";
+                    const isDiagramColumn = col.id === "col_diagram";
                     const cellValue = row.cells[col.id] || "";
                     const teamKey = col.id + "_team";
                     const teamValue = row.cells[teamKey] || "";
                     return (
                       <td key={col.id} className={`px-2 py-1 border-l border-slate-200 dark:border-slate-700 align-top ${sectionBg}`}>
-                        {isEvidenceColumn ? (
+                        {isDiagramColumn ? (
+                          <div className="flex items-center justify-center py-2">
+                            <input
+                              type="checkbox"
+                              checked={normalizeDiagramValue(cellValue, false)}
+                              onChange={(e) => updateCell(row.id, col.id, e.target.checked)}
+                              className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400"
+                              aria-label="Toggle show in diagram"
+                            />
+                          </div>
+                        ) : isEvidenceColumn ? (
                           <ExpandableEvidenceCell value={cellValue} />
                         ) : isAiColumn ? (
                           <div className="flex flex-col gap-1.5">
@@ -5603,6 +5925,27 @@ const DiscoveryTableSection = ({ data, outcomeName, onChange }) => {
             </tbody>
           </table>
         </div>
+        <div className="flex flex-wrap gap-2 mt-3">
+          <button 
+            onClick={addRow}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-950 bg-white border border-slate-950 rounded-md hover:bg-slate-100 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Add opportunity
+          </button>
+          <button 
+            onClick={handleReAnalyse}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-950 bg-white border border-slate-950 rounded-md hover:bg-slate-100 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Re-analyse
+          </button>
+        </div>
+        </>
       )}
     </div>
   );
@@ -5628,6 +5971,7 @@ export default function RequirementAnalyzer() {
     const saved = localStorage.getItem("activeResearchTab");
     return saved === "feedback" ? "feedback" : "documents";
   });
+  const [researchDocuments, setResearchDocuments] = useState(loadResearchDocuments);
   const [showExport, setShowExport] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [actionsModalOpen, setActionsModalOpen] = useState(false);
@@ -6079,8 +6423,8 @@ export default function RequirementAnalyzer() {
       const existingSolutions = Array.isArray(existingOpportunity?.solutions)
         ? existingOpportunity.solutions
         : [];
-      const solutionEntries = parseCellEntries(row.cells?.col_sol);
-      const experimentEntries = parseCellEntries(row.cells?.col_exp);
+      const solutionEntries = parseCellEntries(row.cells?.col_sol_team || row.cells?.col_sol);
+      const experimentEntries = parseCellEntries(row.cells?.col_exp_team || row.cells?.col_exp);
 
       if (solutionEntries.length === 0 && experimentEntries.length === 0) {
         return [];
@@ -6108,6 +6452,7 @@ export default function RequirementAnalyzer() {
           experiments: experimentsForSolution.map((experimentText, experimentIndex) => ({
             id: existingExperiments[experimentIndex]?.id || `exp_${generateId()}`,
             text: experimentText,
+            result: existingExperiments[experimentIndex]?.result || "",
           })),
         };
       });
@@ -6130,20 +6475,46 @@ export default function RequirementAnalyzer() {
           if (opp.sourceRowId) existingByRowId[opp.sourceRowId] = opp;
         });
 
+        let shownInDiagramCount = countShownInDiagram(existingOpps);
+        const rankedDefaultRowIds = getTopPriorityRowIds(tableData.rows || [], DIAGRAM_VISIBLE_LIMIT);
+        const shouldApplyPriorityDefaults =
+          existingOpps.length === 0 && countDiagramRowsMarkedTrue(tableData.rows || []) === 0;
+
         const newOpps = tableData.rows.map((row) => {
           const oppName = row.cells?.col_opp || "Untitled Opportunity";
           const existing = existingByRowId[row.id];
+          const parsedRowDiagram = parseDiagramCellValue(row?.cells?.col_diagram);
+
           if (existing) {
+            const existingShowInDiagram = normalizeDiagramValue(existing.showInDiagram, false);
+            const showInDiagram = parsedRowDiagram.hasValue
+              ? parsedRowDiagram.value
+              : existingShowInDiagram;
+
+            if (existingShowInDiagram && !showInDiagram) shownInDiagramCount = Math.max(0, shownInDiagramCount - 1);
+            if (!existingShowInDiagram && showInDiagram) shownInDiagramCount += 1;
+
             return {
               ...existing,
               text: oppName,
+              showInDiagram,
               solutions: mapRowToSolutions(existing, row),
             };
           }
+
+          const showInDiagram = parsedRowDiagram.hasValue
+            ? parsedRowDiagram.value
+            : shouldApplyPriorityDefaults
+              ? rankedDefaultRowIds.has(row.id)
+              : shownInDiagramCount < DIAGRAM_VISIBLE_LIMIT;
+
+          if (showInDiagram) shownInDiagramCount += 1;
+
           return {
             id: row.id.replace("row_", "opp_"),
             sourceRowId: row.id,
             text: oppName,
+            showInDiagram,
             solutions: mapRowToSolutions(null, row),
           };
         });
@@ -6151,8 +6522,29 @@ export default function RequirementAnalyzer() {
         const newTree = { ...currentTree, opportunities: newOpps };
         delete newTree.positions;
 
+        const opportunityByRowId = new Map(
+          newOpps
+            .filter((opp) => typeof opp?.sourceRowId === "string" && opp.sourceRowId)
+            .map((opp) => [opp.sourceRowId, opp])
+        );
+
+        const nextTable = {
+          ...(outcome.discoveryTable || tableData),
+          columns: withDiagramColumn((tableData.columns || outcome.discoveryTable?.columns || DEFAULT_DISCOVERY_COLUMNS)),
+          rows: (tableData.rows || []).map((row) => {
+            const matchingOpp = opportunityByRowId.get(row.id);
+            return {
+              ...row,
+              cells: {
+                ...(row.cells || {}),
+                col_diagram: normalizeDiagramValue(matchingOpp?.showInDiagram, false),
+              },
+            };
+          }),
+        };
+
         const newOutcomes = [...a.outcomes];
-        newOutcomes[outcomeIdx] = { ...outcome, opportunityTree: newTree };
+        newOutcomes[outcomeIdx] = { ...outcome, discoveryTable: nextTable, opportunityTree: newTree };
 
         return { ...a, outcomes: newOutcomes, updatedAt: new Date().toISOString() };
       })
@@ -6193,7 +6585,13 @@ export default function RequirementAnalyzer() {
         opportunityTree: activeOutcome.opportunityTree
       } : null;
 
-      systemPrompt = `You are an expert product discovery assistant grounded in Teresa Torres' Opportunity Solution Tree (OST) framework and Continuous Discovery Habits.
+      systemPrompt = `## ACTIVE OUTCOME: "${outcomeContext ? outcomeContext.outcomeName : "(none selected)"}"
+
+Every opportunity you identify, suggest, or generate MUST directly serve this outcome. Only surface opportunities that a customer would experience on the path to achieving it. Explicitly ignore any opportunity — no matter how interesting — that does not have a clear, direct connection to this outcome. If you are unsure whether an opportunity serves the outcome, err on the side of exclusion.
+
+---
+
+You are an expert product discovery assistant grounded in Teresa Torres' Opportunity Solution Tree (OST) framework and Continuous Discovery Habits.
 
 ## OST Framework Reference
 The Opportunity Solution Tree is a visual tool that maps:
@@ -6220,7 +6618,6 @@ Your ONLY focus is helping with product discovery tasks:
 
 You must NOT help with unrelated topics. If the user asks about something outside product discovery, politely redirect them to focus on discovery work.
 
-Current outcome: ${outcomeContext ? outcomeContext.outcomeName : "(none selected)"}
 Discovery project: "${active?.name || "Untitled"}"
 
 Available source documents (user research interview transcripts):
@@ -6323,6 +6720,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                     id: generateId(), 
                     cells: { 
                       col_opp: p.value.col_opp || "",
+                      col_diagram: "",
                       col_rprio: p.value.col_rprio || "",
                       col_iprio: p.value.col_iprio || "",
                       col_obj: p.value.col_obj || "",
@@ -6397,6 +6795,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
             id: generateId(), 
             cells: { 
               col_opp: value.col_opp || "",
+              col_diagram: "",
               col_rprio: value.col_rprio || "",
               col_iprio: value.col_iprio || "",
               col_obj: value.col_obj || "",
@@ -6438,6 +6837,69 @@ Be concise and actionable. Respond in the same language the user writes in.`;
     setActiveSection(appMode === "discovery" ? "opportunityTree" : "overview");
     setPhaseFilter("All");
   };
+
+  const createDesignTaskFromOST = useCallback(({ outcome, opportunity, solution, experiment }) => {
+    const solutionText = typeof solution?.text === "string" ? solution.text.trim() : "";
+    const opportunityText = typeof opportunity?.text === "string" ? opportunity.text.trim() : "";
+    const experimentText = typeof experiment?.text === "string" ? experiment.text.trim() : "";
+    const resultText = typeof experiment?.result === "string" ? experiment.result.trim() : "";
+    const outcomeText = typeof outcome?.text === "string" ? outcome.text.trim() : "";
+
+    if (!resultText) {
+      return null;
+    }
+
+    const taskName = solutionText || experimentText || "Untitled Design Task";
+    const nextTask = {
+      ...createBlankAnalysis(taskName, "design-specs"),
+      overview: {
+        featureName: taskName,
+        date: "",
+        requestor: "",
+        description: resultText,
+        origin: "User Research",
+        originOther: "",
+      },
+      problem: {
+        problem: opportunityText,
+        who: "",
+        outcome: outcomeText,
+        metrics: "",
+        ifNotBuilt: "",
+      },
+      context: {
+        segments: "",
+        workflow: experimentText,
+        workarounds: "",
+        triggers: "",
+        beforeAfter: "",
+      },
+      notes: [
+        "Created from an Opportunity Solution Tree experiment result.",
+        outcomeText ? `Outcome: ${outcomeText}` : "",
+        opportunityText ? `Opportunity: ${opportunityText}` : "",
+        solutionText ? `Solution: ${solutionText}` : "",
+        experimentText ? `Experiment: ${experimentText}` : "",
+        `Result: ${resultText}`,
+      ].filter(Boolean).join("\n"),
+    };
+
+    setAnalyses((prev) => [nextTask, ...prev]);
+    return { id: nextTask.id, name: taskName };
+  }, []);
+
+  const openDesignTaskFromOST = useCallback((taskId) => {
+    if (!taskId) return;
+
+    const taskExists = analyses.some((analysis) => analysis.id === taskId);
+    if (!taskExists) return;
+
+    setActiveId(taskId);
+    setAppMode("design-specs");
+    localStorage.setItem("appMode", "design-specs");
+    setActiveSection("overview");
+    setPhaseFilter("All");
+  }, [analyses]);
 
   const deleteAnalysis = (id) => {
     setAnalyses((prev) => {
@@ -6513,7 +6975,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
 
           const tableColumns =
             Array.isArray(o.discoveryTable?.columns) && o.discoveryTable.columns.length > 0
-              ? o.discoveryTable.columns
+              ? withDiagramColumn(o.discoveryTable.columns)
               : DEFAULT_DISCOVERY_COLUMNS;
           const existingRows = Array.isArray(o.discoveryTable?.rows) ? o.discoveryTable.rows : [];
           const existingRowsById = new Map(existingRows.map((row) => [row.id, row]));
@@ -6536,9 +6998,12 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                 ? rowIdFromOppId
                 : rowByText?.id || `row_${generateId()}`;
 
+            const rowDiagramValue = rowByText?.cells?.col_diagram;
+
             return {
               ...opp,
               sourceRowId,
+              showInDiagram: normalizeDiagramValue(opp?.showInDiagram, normalizeDiagramValue(rowDiagramValue, false)),
             };
           });
 
@@ -6570,6 +7035,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                 ...emptyCells,
                 ...existingCells,
                 col_opp: typeof matchingOpp.text === "string" ? matchingOpp.text : existingCells.col_opp,
+                col_diagram: normalizeDiagramValue(matchingOpp.showInDiagram, false),
                 col_sol: solutionText || existingCells.col_sol,
                 col_sol_team: solutionText || existingCells.col_sol_team,
                 col_exp: experimentText || existingCells.col_exp,
@@ -6583,8 +7049,14 @@ Be concise and actionable. Respond in the same language the user writes in.`;
             opportunities: normalizedOpportunities,
           };
 
+          const nextOutcomeName =
+            typeof incomingTree?.outcome?.text === "string" && incomingTree.outcome.text.trim()
+              ? incomingTree.outcome.text.trim()
+              : o.name;
+
           return {
             ...o,
+            name: nextOutcomeName,
             opportunityTree: nextTree,
             discoveryTable: {
               columns: tableColumns,
@@ -7684,7 +8156,25 @@ Be concise and actionable. Respond in the same language the user writes in.`;
 
   const renderOpportunityTreeSection = () => {
     if (!activeOutcome) return <div className="text-center py-12 text-slate-500 dark:text-slate-400"><p className="text-sm">No outcome selected.</p><p className="text-xs mt-1">Open Edit OST to create or update the current tree.</p></div>;
-    return <OSTCanvas outcomeId={activeOutcome.id} data={activeOutcome.opportunityTree} onChange={(v) => updateOutcomeField(activeOutcome.id, "opportunityTree", v)} />;
+    const canvasData = {
+      ...(activeOutcome.opportunityTree || { opportunities: [] }),
+      outcome: {
+        ...(activeOutcome.opportunityTree?.outcome || {}),
+        id: activeOutcome.opportunityTree?.outcome?.id || "outcome",
+        text: activeOutcome.name || activeOutcome.opportunityTree?.outcome?.text || "Desired Outcome",
+      },
+    };
+
+    return (
+      <OSTCanvas
+        outcomeId={activeOutcome.id}
+        data={canvasData}
+        researchDocuments={researchDocuments}
+        onCreateDesignTask={createDesignTaskFromOST}
+        onOpenDesignTask={openDesignTaskFromOST}
+        onChange={(v) => updateOutcomeField(activeOutcome.id, "opportunityTree", v)}
+      />
+    );
   };
 
   const isDiscoveryCanvasView = appMode === "discovery" && activeSection === "opportunityTree";
@@ -7743,9 +8233,9 @@ Be concise and actionable. Respond in the same language the user writes in.`;
         return <DiscoveryTableSection data={activeOutcome.discoveryTable} outcomeName={activeOutcome.name} onChange={(v) => { updateOutcomeField(activeOutcome.id, "discoveryTable", v); syncTableToOST(v); }} />;
       }
       case "discoveryResearch":
-        return activeResearchTab === "feedback" ? <FeedbackSection /> : <DocumentsSection opportunities={activeOutcome?.opportunityTree?.opportunities || []} />;
+        return activeResearchTab === "feedback" ? <FeedbackSection /> : <DocumentsSection opportunities={activeOutcome?.opportunityTree?.opportunities || []} onResearchDocumentsChange={setResearchDocuments} />;
       case "opportunityTree": return null;
-      case "sourceDocuments": return <DocumentsSection opportunities={activeOutcome?.opportunityTree?.opportunities || []} />;
+      case "sourceDocuments": return <DocumentsSection opportunities={activeOutcome?.opportunityTree?.opportunities || []} onResearchDocumentsChange={setResearchDocuments} />;
       case "feedback": return <FeedbackSection />;
       default: return null;
     }

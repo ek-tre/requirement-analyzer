@@ -30,6 +30,7 @@ A comprehensive React application for managing design and requirement analysis t
 ### Security & Privacy
 - 🔒 **AES-256-GCM Encryption** - Automatic encryption when secure tasks exist (PBKDF2 key derivation, 100k iterations)
 - 🛡️ **Conditional Features** - AI and cloud sync automatically hidden for secure tasks
+- 🔐 **SSO Protected Deployment** - Access is controlled by Vercel SSO/deployment protection
 - 🏢 **Approved Services** - Uses only organizationally approved platforms (GitHub, Microsoft Copilot infrastructure, Figma)
 
 ## Collaboration
@@ -142,9 +143,17 @@ See **[SECURITY_IMPLEMENTATION.md](SECURITY_IMPLEMENTATION.md)** for technical i
 
 ## Deployment
 
-Deployed via GitHub Pages:
+Deploy to Vercel:
+
 ```bash
 npm run deploy
 ```
 
-Live site: `https://3-ae.github.io/design-task-manager/` (or your-username.github.io/repo-name)
+Preview deployment:
+
+```bash
+npm run deploy:preview
+```
+
+Project: https://vercel.com/hi3g/discovery-and-design-planning
+

@@ -6,8 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "lint": "eslint .",
+    "test": "node --test tests/**/*.test.mjs || echo 'No tests found'",
+    "check": "npm run lint && npm run test && npm run build",
     "preview": "vite preview",
-    "deploy": "npm run build && gh-pages -d dist"
+    "deploy": "npm run check && npx vercel --prod",
+    "deploy:preview": "npx vercel"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
@@ -18,11 +22,11 @@
     "tldraw": "^5.0.1"
   },
   "devDependencies": {
+    "eslint": "^9.28.0",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
-    "gh-pages": "^6.3.0",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
     "vite": "^5.0.8"

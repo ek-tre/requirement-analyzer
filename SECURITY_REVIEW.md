@@ -28,6 +28,7 @@ This is a **client-side requirements documentation tool** with a **user-controll
 | **Encryption** | AES-256-GCM, PBKDF2 (100k iterations) | 🟢 Low |
 | **Network Storage** | None (static deployment) | 🟢 None |
 | **Server Processing** | None (fully client-side) | 🟢 None |
+| **Access Control** | Vercel SSO / Deployment Protection | 🟢 Low |
 
 ---
 
@@ -103,7 +104,7 @@ All external services **automatically disabled** when secure mode is active.
 ## Recommendations
 
 ### For Deployment
-1. **Deploy as Static Site**: GitHub Pages or similar (no server required)
+1. **Deploy as Static Site**: Use approved static hosting (for example Vercel) with no app server
 2. **HTTPS Required**: Ensure encrypted transport layer
 3. **Document User Guidelines**: Brief on secure mode usage for sensitive projects
 4. **Browser Requirements**: Modern browser with Web Crypto API support

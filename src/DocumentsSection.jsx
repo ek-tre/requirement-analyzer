@@ -3,6 +3,7 @@ import mammoth from "mammoth";
 
 const BASE_PATH = import.meta.env.BASE_URL + "documents/";
 const STORAGE_KEY = "documentSections";
+const RESEARCH_DOCUMENTS_KEY = "researchDocuments";
 
 // Section definitions
 const SECTIONS = [
@@ -37,6 +38,37 @@ function loadSections() {
 
 function saveSections(data) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function loadResearchDocuments() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RESEARCH_DOCUMENTS_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveResearchDocuments(docs) {
+  localStorage.setItem(RESEARCH_DOCUMENTS_KEY, JSON.stringify(docs));
+}
+
+function escapeHtml(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function plainTextToHtml(text) {
+  const normalized = (text || "").replace(/\r\n/g, "\n");
+  const blocks = normalized.split("\n\n").map((part) => part.trim()).filter(Boolean);
+  if (blocks.length === 0) return "<p></p>";
+  return blocks
+    .map((block) => `<p>${escapeHtml(block).replaceAll("\n", "<br />")}</p>`)
+    .join("");
 }
 
 function parseHtmlToParagraphs(html) {
@@ -89,17 +121,30 @@ function getSectionForParagraph(idx, boundaries) {
   return 1;
 }
 
-export default function DocumentsSection() {
+export default function DocumentsSection({ opportunities = [], onResearchDocumentsChange }) {
   const [documents, setDocuments] = useState([]);
+  const [researchDocuments, setResearchDocuments] = useState(loadResearchDocuments);
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [docContent, setDocContent] = useState("");
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterMarket, setFilterMarket] = useState("all");
   const [sections, setSections] = useState(loadSections);
   const [contextMenu, setContextMenu] = useState(null); // { idx, x, y }
+  const [uploadDraft, setUploadDraft] = useState(null);
+  const [opportunitySearch, setOpportunitySearch] = useState("");
   const readerRef = useRef(null);
   const sectionRefs = useRef({});
+  const uploadInputRef = useRef(null);
+
+  const persistResearchDocuments = useCallback((nextDocs) => {
+    setResearchDocuments(nextDocs);
+    saveResearchDocuments(nextDocs);
+    if (typeof onResearchDocumentsChange === "function") {
+      onResearchDocumentsChange(nextDocs);
+    }
+  }, [onResearchDocumentsChange]);
 
   useEffect(() => {
     fetch(BASE_PATH + "manifest.json")
@@ -107,6 +152,22 @@ export default function DocumentsSection() {
       .then(setDocuments)
       .catch(() => setDocuments([]));
   }, []);
+
+  useEffect(() => {
+    const migrated = researchDocuments.map((doc) => {
+      if (Array.isArray(doc.opportunityIds)) return doc;
+      const legacyId = typeof doc.opportunityId === "string" && doc.opportunityId ? doc.opportunityId : "";
+      return {
+        ...doc,
+        opportunityIds: legacyId ? [legacyId] : [],
+      };
+    });
+
+    const changed = migrated.some((doc, idx) => doc !== researchDocuments[idx]);
+    if (!changed) return;
+
+    persistResearchDocuments(migrated);
+  }, [researchDocuments, persistResearchDocuments]);
 
   const paragraphs = useMemo(() => {
     if (!docContent) return [];
@@ -125,8 +186,14 @@ export default function DocumentsSection() {
 
   const loadDocument = useCallback(async (doc) => {
     setSelectedDoc(doc);
-    setLoading(true);
     setContextMenu(null);
+
+    if (doc.isUploaded) {
+      setDocContent(plainTextToHtml(doc.content || ""));
+      return;
+    }
+
+    setLoading(true);
     try {
       const response = await fetch(BASE_PATH + doc.filename);
       const arrayBuffer = await response.arrayBuffer();
@@ -137,6 +204,121 @@ export default function DocumentsSection() {
     }
     setLoading(false);
   }, []);
+
+  const handleUploadFile = useCallback(async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    const lowerName = file.name.toLowerCase();
+    if (!lowerName.endsWith(".txt") && !lowerName.endsWith(".docx")) return;
+
+    setUploading(true);
+    try {
+      let content = "";
+      if (lowerName.endsWith(".txt")) {
+        content = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+          reader.onerror = () => reject(new Error("Failed to read .txt file"));
+          reader.readAsText(file);
+        });
+      } else {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        content = result.value || "";
+      }
+
+      const defaultName = file.name.replace(/\.[^/.]+$/, "") || file.name;
+      setUploadDraft({
+        name: defaultName,
+        tag: "DK",
+        opportunityIds: [],
+        content,
+      });
+      setOpportunitySearch("");
+    } catch {
+      // Keep this lightweight; errors are non-fatal for the page.
+    } finally {
+      setUploading(false);
+    }
+  }, []);
+
+  const confirmUpload = useCallback(() => {
+    if (!uploadDraft) return;
+    const trimmedName = (uploadDraft.name || "").trim();
+    if (!trimmedName) return;
+
+    const newDocument = {
+      id: `doc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      name: trimmedName,
+      tag: uploadDraft.tag || "Other",
+      opportunityIds: Array.isArray(uploadDraft.opportunityIds) ? uploadDraft.opportunityIds : [],
+      content: uploadDraft.content || "",
+      uploadedAt: new Date().toISOString(),
+    };
+
+    const updated = [newDocument, ...researchDocuments];
+    persistResearchDocuments(updated);
+    setUploadDraft(null);
+
+    const listDoc = {
+      id: newDocument.id,
+      label: newDocument.name,
+      company: newDocument.name,
+      market: newDocument.tag,
+      filename: "Uploaded",
+      isUploaded: true,
+      content: newDocument.content,
+      opportunityIds: newDocument.opportunityIds,
+    };
+    setSelectedDoc(listDoc);
+    setDocContent(plainTextToHtml(newDocument.content));
+    setOpportunitySearch("");
+  }, [uploadDraft, researchDocuments, persistResearchDocuments]);
+
+  const toggleOpportunityInDraft = useCallback((opportunityId) => {
+    setUploadDraft((prev) => {
+      if (!prev) return prev;
+      const current = Array.isArray(prev.opportunityIds) ? prev.opportunityIds : [];
+      const hasId = current.includes(opportunityId);
+      return {
+        ...prev,
+        opportunityIds: hasId ? current.filter((id) => id !== opportunityId) : [...current, opportunityId],
+      };
+    });
+  }, []);
+
+  const opportunityNameById = useMemo(() => {
+    const map = {};
+    opportunities.forEach((opp) => {
+      map[opp.id] = opp.text || "Untitled opportunity";
+    });
+    return map;
+  }, [opportunities]);
+
+  const filteredOpportunities = useMemo(() => {
+    const term = opportunitySearch.trim().toLowerCase();
+    if (!term) return opportunities;
+    return opportunities.filter((opp) => (opp.text || "").toLowerCase().includes(term));
+  }, [opportunities, opportunitySearch]);
+
+  const allDocuments = useMemo(() => {
+    const uploaded = researchDocuments.map((doc) => ({
+      id: doc.id,
+      label: doc.name,
+      company: doc.name,
+      market: doc.tag,
+      filename: "Uploaded",
+      isUploaded: true,
+      content: doc.content,
+      uploadedAt: doc.uploadedAt,
+      opportunityIds: Array.isArray(doc.opportunityIds)
+        ? doc.opportunityIds
+        : (doc.opportunityId ? [doc.opportunityId] : []),
+    }));
+    return [...uploaded, ...documents];
+  }, [researchDocuments, documents]);
 
   const setBoundary = useCallback((sectionNum, paragraphIdx) => {
     if (!selectedDoc) return;
@@ -172,13 +354,15 @@ export default function DocumentsSection() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
-  const filteredDocs = documents.filter((d) => {
+  const filteredDocs = allDocuments.filter((d) => {
     if (filterMarket !== "all" && d.market !== filterMarket) return false;
-    if (searchTerm && !d.label.toLowerCase().includes(searchTerm.toLowerCase()) && !d.company.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    const label = (d.label || "").toLowerCase();
+    const company = (d.company || "").toLowerCase();
+    if (searchTerm && !label.includes(searchTerm.toLowerCase()) && !company.includes(searchTerm.toLowerCase())) return false;
     return true;
   });
 
-  const markets = [...new Set(documents.map((d) => d.market))];
+  const markets = [...new Set(allDocuments.map((d) => d.market).filter(Boolean))];
 
   const hasSections = boundaries.section2Start !== null || boundaries.section3Start !== null;
 
@@ -234,9 +418,118 @@ export default function DocumentsSection() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="mb-4">
-        <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">Research Data</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Interview transcripts and research source material.</p>
+      {uploadDraft && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setUploadDraft(null)}>
+          <div className="w-full max-w-md rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Add Research Document</h3>
+            </div>
+            <div className="p-4 space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Document name</label>
+                <input
+                  type="text"
+                  value={uploadDraft.name}
+                  onChange={(e) => setUploadDraft((prev) => ({ ...prev, name: e.target.value }))}
+                  className="w-full px-2.5 py-1.5 text-xs border border-slate-200 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Country / region</label>
+                <select
+                  value={uploadDraft.tag}
+                  onChange={(e) => setUploadDraft((prev) => ({ ...prev, tag: e.target.value }))}
+                  className="w-full px-2.5 py-1.5 text-xs border border-slate-200 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                >
+                  <option value="DK">DK</option>
+                  <option value="SE">SE</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Opportunity tags</label>
+                <input
+                  type="text"
+                  value={opportunitySearch}
+                  onChange={(e) => setOpportunitySearch(e.target.value)}
+                  placeholder="Search opportunities..."
+                  className="w-full px-2.5 py-1.5 text-xs border border-slate-200 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                />
+                <div className="mt-2 max-h-32 overflow-y-auto border border-slate-200 dark:border-slate-600 rounded-md p-2 space-y-1">
+                  {filteredOpportunities.length === 0 ? (
+                    <p className="text-[11px] text-slate-400">No matching opportunities</p>
+                  ) : (
+                    filteredOpportunities.map((opp) => {
+                      const selected = (uploadDraft.opportunityIds || []).includes(opp.id);
+                      return (
+                        <label key={opp.id} className="flex items-start gap-2 text-xs text-slate-700 dark:text-slate-200 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() => toggleOpportunityInDraft(opp.id)}
+                            className="mt-0.5"
+                          />
+                          <span>{opp.text || "Untitled opportunity"}</span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+                {(uploadDraft.opportunityIds || []).length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {uploadDraft.opportunityIds.map((id) => (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => toggleOpportunityInDraft(id)}
+                        className="px-2 py-0.5 text-[10px] rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                        title="Remove tag"
+                      >
+                        {opportunityNameById[id] || "Unknown"} ×
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setUploadDraft(null)}
+                className="px-3 py-1.5 text-xs border border-slate-200 dark:border-slate-600 rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmUpload}
+                className="px-3 py-1.5 text-xs rounded-md bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 hover:opacity-90"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept=".docx,.txt"
+        onChange={handleUploadFile}
+        className="hidden"
+      />
+
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">Research Data</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Interview transcripts and research source material.</p>
+        </div>
+        <button
+          onClick={() => uploadInputRef.current?.click()}
+          disabled={uploading}
+          className="px-3 py-1.5 text-xs font-medium border border-slate-200 dark:border-slate-600 rounded-md bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-60"
+        >
+          {uploading ? "Parsing..." : "Upload"}
+        </button>
       </div>
 
       <div className="flex gap-4 flex-1 min-h-0">
@@ -276,8 +569,12 @@ export default function DocumentsSection() {
                       : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50"
                   }`}
                 >
-                  <span className="inline-block w-6 text-[10px] font-medium text-slate-400 dark:text-slate-500">{doc.market}</span>
-                  {doc.company}
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="inline-flex items-center justify-center px-1.5 py-0.5 min-w-[2.25rem] rounded bg-slate-100 dark:bg-slate-700 text-[10px] font-semibold text-slate-500 dark:text-slate-300 shrink-0">
+                      {doc.market || "N/A"}
+                    </span>
+                    <span className="truncate block">{doc.company || doc.label}</span>
+                  </div>
                 </button>
               );
             })}
@@ -286,7 +583,7 @@ export default function DocumentsSection() {
             )}
           </div>
 
-          <p className="text-[10px] text-slate-400 dark:text-slate-500">{documents.length} documents</p>
+          <p className="text-[10px] text-slate-400 dark:text-slate-500">{allDocuments.length} documents</p>
         </div>
 
         {/* Document reader */}
@@ -307,6 +604,15 @@ export default function DocumentsSection() {
                   <div>
                     <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">{selectedDoc.label}</h3>
                     <span className="text-[10px] text-slate-400 dark:text-slate-500">{selectedDoc.filename}</span>
+                    {Array.isArray(selectedDoc.opportunityIds) && selectedDoc.opportunityIds.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {selectedDoc.opportunityIds.map((id) => (
+                          <span key={id} className="px-1.5 py-0.5 text-[10px] rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                            {opportunityNameById[id] || "Tagged opportunity"}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   {hasSections && (
                     <div className="flex gap-1">
