@@ -33,6 +33,7 @@ import GitHubSync, { HybridStorage } from "./githubSync.js";
 const ENCRYPTION_KEY_NAME = "req_analyzer_key_v1";
 const ENCRYPTION_SALT = "requirement-analyzer-secure-2026"; // In production, use unique per-installation salt
 const RESEARCH_DOCUMENTS_KEY = "researchDocuments";
+const ENCRYPTED_PAYLOAD_PREFIX = "enc:v1:";
 
 const loadResearchDocuments = () => {
   try {
@@ -84,28 +85,23 @@ const getEncryptionKey = async () => {
 
 // Encrypt data
 const encryptData = async (data) => {
-  try {
-    const key = await getEncryptionKey();
-    const encoder = new TextEncoder();
-    const iv = window.crypto.getRandomValues(new Uint8Array(12)); // 12 bytes for AES-GCM
-    
-    const encrypted = await window.crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      key,
-      encoder.encode(data)
-    );
-    
-    // Combine IV and encrypted data
-    const combined = new Uint8Array(iv.length + encrypted.byteLength);
-    combined.set(iv);
-    combined.set(new Uint8Array(encrypted), iv.length);
-    
-    // Convert to base64 for localStorage
-    return btoa(String.fromCharCode(...combined));
-  } catch (error) {
-    console.error("Encryption failed:", error);
-    return data; // Fallback to unencrypted if encryption fails
-  }
+  const key = await getEncryptionKey();
+  const encoder = new TextEncoder();
+  const iv = window.crypto.getRandomValues(new Uint8Array(12)); // 12 bytes for AES-GCM
+
+  const encrypted = await window.crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    encoder.encode(data)
+  );
+
+  // Combine IV and encrypted data
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv);
+  combined.set(new Uint8Array(encrypted), iv.length);
+
+  // Prefix payloads to prevent accidental plaintext acceptance in secure mode.
+  return ENCRYPTED_PAYLOAD_PREFIX + btoa(String.fromCharCode(...combined));
 };
 
 // Decrypt data
@@ -114,52 +110,33 @@ const decryptData = async (encryptedData) => {
   if (!encryptedData || encryptedData.trim() === '') {
     return null;
   }
-  
+
   try {
     const key = await getEncryptionKey();
     const decoder = new TextDecoder();
-    
-    // Decode from base64 with better error handling
-    let combined;
-    try {
-      combined = new Uint8Array(
-        atob(encryptedData).split('').map(char => char.charCodeAt(0))
-      );
-    } catch (atobError) {
-      console.warn("Base64 decode failed, trying as plain JSON:", atobError);
-      // Try to parse as unencrypted JSON
-      try {
-        JSON.parse(encryptedData);
-        return encryptedData;
-      } catch (jsonError) {
-        console.error("Data is neither base64 nor valid JSON", jsonError);
-        return null;
-      }
-    }
-    
+
+    const payload = encryptedData.startsWith(ENCRYPTED_PAYLOAD_PREFIX)
+      ? encryptedData.slice(ENCRYPTED_PAYLOAD_PREFIX.length)
+      : encryptedData;
+
+    const combined = new Uint8Array(
+      atob(payload).split('').map(char => char.charCodeAt(0))
+    );
+
     // Extract IV and encrypted data
     const iv = combined.slice(0, 12);
     const encrypted = combined.slice(12);
-    
+
     const decrypted = await window.crypto.subtle.decrypt(
       { name: "AES-GCM", iv },
       key,
       encrypted
     );
-    
+
     return decoder.decode(decrypted);
   } catch (error) {
     console.error("Decryption failed:", error);
-    // If decryption fails, might be old unencrypted data - try to validate it
-    try {
-      // Test if it's valid JSON
-      JSON.parse(encryptedData);
-      console.log("Data appears to be unencrypted JSON, using as-is");
-      return encryptedData;
-    } catch (parseError) {
-      console.error("Data is neither encrypted nor valid JSON", parseError);
-      return null;
-    }
+    return null;
   }
 };
 
@@ -419,8 +396,39 @@ const SECTIONS = [
   { id: "codeRefs", label: "Code References", icon: "◇" },
   { id: "design", label: "Design System", icon: "◆" },
   { id: "wireframe", label: "Structure", icon: "◧" },
-  { id: "summary", label: "Summary", icon: "◼" },
 ];
+
+const REFERENCE_SECTION_IDS = ["designRefs", "codeRefs", "design"];
+
+const DESIGN_NAV_GROUPS = [
+  { id: "essentials", label: "Essentials", sections: ["overview", "problem", "context", "scope", "acceptance"] },
+  { id: "research", label: "Research", sections: ["research", "assumptions", "edges", "questions"] },
+  { id: "references", label: "References", sections: REFERENCE_SECTION_IDS },
+  { id: "structure", label: "Structure", sections: ["wireframe"] },
+  { id: "delivery", label: "Delivery", sections: ["summary", "notes"] },
+];
+
+function getDesignGroupForSection(sectionId) {
+  const match = DESIGN_NAV_GROUPS.find((group) => group.sections.includes(sectionId));
+  return match?.id || "essentials";
+}
+
+function getDefaultSectionForGroup(groupId, currentSection) {
+  const group = DESIGN_NAV_GROUPS.find((item) => item.id === groupId);
+  if (!group) return "overview";
+  if (group.id === "references" && REFERENCE_SECTION_IDS.includes(currentSection)) {
+    return currentSection;
+  }
+  return group.sections[0];
+}
+
+function getDesignGroupCount(analysis, groupId) {
+  if (!analysis || groupId !== "research") return undefined;
+  const openAssumptions = (analysis.assumptions || []).filter((a) => a.status === "Unvalidated" || a.status === "Needs Research").length;
+  const openQuestions = (analysis.questions || []).filter((q) => q.status === "Open").length;
+  const count = openAssumptions + openQuestions;
+  return count > 0 ? `${count}` : undefined;
+}
 
 const DISCOVERY_SECTIONS = [
   { id: "discoveryResearch", label: "Research" },
@@ -3297,7 +3305,7 @@ const UserResearchSection = ({ data, language, onChange }) => {
 const DESIGN_REF_TYPES = ["figma", "figjam", "image"];
 const DESIGN_REF_TYPE_LABELS = { figma: "Figma", figjam: "Figjam", image: "Image" };
 
-const DesignReferencesSection = ({ data, language, onChange }) => {
+const DesignReferencesSection = ({ data, language, onChange, showHeader = true }) => {
   const t = TRANSLATIONS[language] || TRANSLATIONS.en;
   const references = data.references || [];
 
@@ -3321,7 +3329,9 @@ const DesignReferencesSection = ({ data, language, onChange }) => {
 
   return (
   <div>
-    <SectionHeader title={t.sections.designRefs || "Design References"} description="Figma files, Figjam boards, and reference images for this design task." />
+    {showHeader && (
+      <SectionHeader title={t.sections.designRefs || "Design References"} description="Figma files, Figjam boards, and reference images for this design task." />
+    )}
     
     {references.length === 0 && (
       <div className="text-center py-8 text-slate-400 dark:text-slate-500">
@@ -3456,7 +3466,7 @@ const DesignReferencesSection = ({ data, language, onChange }) => {
 const CODE_REF_TYPES = ["prototype", "production", "package", "docs", "other"];
 const CODE_REF_TYPE_LABELS = { prototype: "Prototype", production: "Production", package: "Package/Library", docs: "Documentation", other: "Other" };
 
-const CodeReferencesSection = ({ data, language, onChange }) => {
+const CodeReferencesSection = ({ data, language, onChange, showHeader = true }) => {
   const t = TRANSLATIONS[language] || TRANSLATIONS.en;
   const repos = data.repos || [];
 
@@ -3472,7 +3482,9 @@ const CodeReferencesSection = ({ data, language, onChange }) => {
 
   return (
   <div>
-    <SectionHeader title={t.sections.codeRefs || "Code References"} description="GitHub repos, prototype links, package references, and documentation for this feature." />
+    {showHeader && (
+      <SectionHeader title={t.sections.codeRefs || "Code References"} description="GitHub repos, prototype links, package references, and documentation for this feature." />
+    )}
 
     {repos.length === 0 && (
       <div className="text-center py-8 text-slate-400 dark:text-slate-500">
@@ -3576,7 +3588,7 @@ const DESIGN_SYSTEM_PRESETS = {
   },
 };
 
-const DesignSystemSection = ({ data, language, onChange }) => {
+const DesignSystemSection = ({ data, language, onChange, showHeader = true }) => {
   const t = TRANSLATIONS[language] || TRANSLATIONS.en;
   const preset = data.preset || 'custom';
   
@@ -3595,7 +3607,9 @@ const DesignSystemSection = ({ data, language, onChange }) => {
   
   return (
   <div>
-    <SectionHeader title={t.sections.design} description="Reference your design system for consistent component usage and AI context." />
+    {showHeader && (
+      <SectionHeader title={t.sections.design} description="Reference your design system for consistent component usage and AI context." />
+    )}
     
     <div className="space-y-4">
       <div>
@@ -3642,30 +3656,6 @@ const DesignSystemSection = ({ data, language, onChange }) => {
         />
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">{t.fields.componentLibrary}</label>
-        <input
-          type="text"
-          value={data.componentLibrary || ""}
-          onChange={(e) => onChange({ ...data, componentLibrary: e.target.value })}
-          placeholder="e.g., @company/design-system, npm package name"
-          className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400"
-        />
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Package or repository reference for the component library</p>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">{t.fields.tokensLink}</label>
-        <input
-          type="url"
-          value={data.tokensLink || ""}
-          onChange={(e) => onChange({ ...data, tokensLink: e.target.value })}
-          placeholder="https://..."
-          className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400"
-        />
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Link to design tokens documentation (colors, typography, spacing)</p>
-      </div>
-
       <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">{t.fields.figmaDesignUrl}</label>
         <input
@@ -3692,21 +3682,86 @@ const DesignSystemSection = ({ data, language, onChange }) => {
         )}
       </div>
 
-      <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
-        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">{t.fields.mcpInstructions}</label>
-        <textarea
-          value={data.mcpInstructions || ""}
-          onChange={(e) => onChange({ ...data, mcpInstructions: e.target.value })}
-          placeholder={"Example MCP setup command:\nnpx -y @modelcontextprotocol/server-figma --access-token YOUR_TOKEN --file-key abc123\n\nOr include instructions for your specific MCP configuration for AI agents to access this Figma file."}
-          rows={6}
-          className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400 font-mono"
-        />
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-          <strong>For AI Context:</strong> Provide setup instructions or MCP connection details so AI agents (like GitHub Copilot with Figma MCP) can access design system components, tokens, and patterns programmatically. This helps AI provide context-aware design suggestions.
-        </p>
-      </div>
+      <details className="pt-2 border-t border-slate-200 dark:border-slate-700">
+        <summary className="text-sm text-slate-600 dark:text-slate-300 cursor-pointer hover:text-slate-800 dark:hover:text-slate-100">Advanced design system context</summary>
+        <div className="mt-3 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">{t.fields.componentLibrary}</label>
+            <input
+              type="text"
+              value={data.componentLibrary || ""}
+              onChange={(e) => onChange({ ...data, componentLibrary: e.target.value })}
+              placeholder="e.g., @company/design-system, npm package name"
+              className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400"
+            />
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Package or repository reference for the component library</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">{t.fields.tokensLink}</label>
+            <input
+              type="url"
+              value={data.tokensLink || ""}
+              onChange={(e) => onChange({ ...data, tokensLink: e.target.value })}
+              placeholder="https://..."
+              className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400"
+            />
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Link to design tokens documentation (colors, typography, spacing)</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">{t.fields.mcpInstructions}</label>
+            <textarea
+              value={data.mcpInstructions || ""}
+              onChange={(e) => onChange({ ...data, mcpInstructions: e.target.value })}
+              placeholder={"Example MCP setup command:\nnpx -y @modelcontextprotocol/server-figma --access-token YOUR_TOKEN --file-key abc123\n\nOr include instructions for your specific MCP configuration for AI agents to access this Figma file."}
+              rows={6}
+              className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400 font-mono"
+            />
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              <strong>For AI Context:</strong> Provide setup instructions or MCP connection details so AI agents (like GitHub Copilot with Figma MCP) can access design system components, tokens, and patterns programmatically. This helps AI provide context-aware design suggestions.
+            </p>
+          </div>
+        </div>
+      </details>
     </div>
   </div>
+  );
+};
+
+const ReferencesHubSection = ({ language, activeTab, onTabChange, designRefs, codeRefs, design, onDesignRefsChange, onCodeRefsChange, onDesignChange }) => {
+  const t = TRANSLATIONS[language] || TRANSLATIONS.en;
+
+  return (
+    <div>
+      <SectionHeader title="References" description="Collect design assets, implementation links, and design system context in one place." />
+
+      <div className="flex flex-wrap gap-2 mb-5">
+        {REFERENCE_SECTION_IDS.map((sectionId) => (
+          <button
+            key={sectionId}
+            onClick={() => onTabChange(sectionId)}
+            className={`px-3 py-2 text-sm rounded-lg transition-colors ${
+              activeTab === sectionId
+                ? "bg-slate-800 dark:bg-slate-600 text-white font-medium"
+                : "bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 hover:border-slate-300 dark:hover:border-slate-500"
+            }`}
+          >
+            {t.sections[sectionId] || sectionId}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "designRefs" && (
+        <DesignReferencesSection data={designRefs || { references: [], notes: "" }} language={language} onChange={onDesignRefsChange} showHeader={false} />
+      )}
+      {activeTab === "codeRefs" && (
+        <CodeReferencesSection data={codeRefs || { repos: [] }} language={language} onChange={onCodeRefsChange} showHeader={false} />
+      )}
+      {activeTab === "design" && (
+        <DesignSystemSection data={design || {}} language={language} onChange={onDesignChange} showHeader={false} />
+      )}
+    </div>
   );
 };
 
@@ -4057,7 +4112,6 @@ const AI_BRIEF_SECTIONS = [
   { id: 'questions', label: 'Open Questions', description: 'Pending and resolved questions', recommended: false },
   { id: 'notes', label: 'Notes', description: 'Additional context and notes', recommended: false },
   { id: 'research', label: 'User Research', description: 'Research plans, test scenarios, findings', recommended: false },
-  { id: 'mapping', label: 'Mapping', description: 'Figma/Figjam visual references (legacy)', recommended: false },
   { id: 'designRefs', label: 'Design References', description: 'Figma files, Figjam boards, reference images', recommended: false },
   { id: 'codeRefs', label: 'Code References', description: 'GitHub repos, prototypes, documentation', recommended: false },
   { id: 'design', label: 'Design System', description: 'Design system, tokens, MCP config', recommended: true },
@@ -4070,7 +4124,7 @@ const RECOMMENDED_SECTIONS = AI_BRIEF_SECTIONS.reduce((acc, s) => ({ ...acc, [s.
 const BRIEF_FILE_GROUPS = [
   { id: 'core-brief', label: 'Core Brief', filename: 'core-brief', sections: ['overview', 'problem', 'context', 'scope', 'acceptance'], description: 'Primary design brief with problem, context, and requirements' },
   { id: 'research', label: 'Research & Discovery', filename: 'research', sections: ['research', 'assumptions', 'questions', 'edges'], description: 'User research findings, assumptions, open questions, edge cases' },
-  { id: 'references', label: 'References', filename: 'references', sections: ['mapping', 'designRefs', 'codeRefs', 'design', 'wireframe'], description: 'Design files, code repos, design system, wireframes' },
+  { id: 'references', label: 'References', filename: 'references', sections: ['designRefs', 'codeRefs', 'design', 'wireframe'], description: 'Design files, code repos, design system, wireframes' },
   { id: 'operational', label: 'Operational', filename: 'operational', sections: ['actions', 'notes'], description: 'Action items and additional notes' },
 ];
 
@@ -4266,6 +4320,41 @@ const SummarySection = ({ data, language, onChange, onGenerateAIBrief, analysis 
       </p>
     </div>
   </div>
+  );
+};
+
+const ExportModal = ({ open, onClose, data, language, onChange, onGenerateAIBrief, analysis }) => {
+  useEffect(() => {
+    if (!open) return;
+
+    const handleEscape = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Export to markdown</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 text-xl leading-none" aria-label="Close export modal">×</button>
+        </div>
+        <div className="overflow-y-auto p-5">
+          <SummarySection
+            data={data}
+            language={language}
+            onChange={onChange}
+            onGenerateAIBrief={onGenerateAIBrief}
+            analysis={analysis}
+          />
+        </div>
+      </div>
+    </div>
   );
 };
 
@@ -5962,6 +6051,8 @@ export default function RequirementAnalyzer() {
     if (storedMode === "discovery") return "opportunityTree";
     const saved = localStorage.getItem("activeSection");
     if (saved === "sourceDocuments" || saved === "feedback") return "discoveryResearch";
+    if (saved === "mapping") return "designRefs";
+    if (saved === "summary") return "overview";
     if (saved) return saved;
     return "overview";
   });
@@ -5974,7 +6065,8 @@ export default function RequirementAnalyzer() {
   const [researchDocuments, setResearchDocuments] = useState(loadResearchDocuments);
   const [showExport, setShowExport] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [actionsModalOpen, setActionsModalOpen] = useState(false);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
   const [githubTokenModalOpen, setGithubTokenModalOpen] = useState(false);
   const [githubTokenModalScope, setGithubTokenModalScope] = useState("gist");
   const [phaseFilter, setPhaseFilter] = useState("All");
@@ -5991,6 +6083,7 @@ export default function RequirementAnalyzer() {
   const [githubRepoExpanded, setGithubRepoExpanded] = useState(false);
   const [githubSyncStatus, setGithubSyncStatus] = useState(null);
   const githubSyncRef = useRef(null);
+  const actionsMenuRef = useRef(null);
   const [audioModalOpen, setAudioModalOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState("");
@@ -6030,6 +6123,29 @@ export default function RequirementAnalyzer() {
   useEffect(() => {
     localStorage.setItem("activeResearchTab", activeResearchTab);
   }, [activeResearchTab]);
+
+  useEffect(() => {
+    if (!actionsMenuOpen) return;
+
+    const handleClickOutside = (event) => {
+      if (actionsMenuRef.current && !actionsMenuRef.current.contains(event.target)) {
+        setActionsMenuOpen(false);
+      }
+    };
+
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setActionsMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [actionsMenuOpen]);
 
   const closeOutcomeWizard = useCallback(() => {
     setOutcomeWizardOpen(false);
@@ -8134,6 +8250,10 @@ Be concise and actionable. Respond in the same language the user writes in.`;
   if (!active) return null;
   const completion = getCompletion(active);
   const { filled: tasksFilled, total: tasksTotal } = getTaskCount(active);
+  const lang = active.language || "en";
+  const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
+  const activeDesignGroupId = getDesignGroupForSection(activeSection);
+  const activeDesignGroup = DESIGN_NAV_GROUPS.find((group) => group.id === activeDesignGroupId) || DESIGN_NAV_GROUPS[0];
 
   // Count analyses per phase for the filter
   const phaseCounts = useMemo(() => {
@@ -8222,11 +8342,23 @@ Be concise and actionable. Respond in the same language the user writes in.`;
       case "questions": return <QuestionsSection data={active.questions} language={lang} onChange={(v) => updateActive("questions", v)} />;
       case "notes": return <NotesSection data={active.notes} language={lang} onChange={(v) => updateActive("notes", v)} />;
       case "research": return <UserResearchSection data={active.research || { rounds: [] }} language={lang} onChange={(v) => updateActive("research", v)} />;
-      case "designRefs": return <DesignReferencesSection data={active.designRefs || { references: [], notes: "" }} language={lang} onChange={(v) => updateActive("designRefs", v)} />;
-      case "codeRefs": return <CodeReferencesSection data={active.codeRefs || { repos: [] }} language={lang} onChange={(v) => updateActive("codeRefs", v)} />;
-      case "design": return <DesignSystemSection data={active.design || {}} language={lang} onChange={(v) => updateActive("design", v)} />;
+      case "designRefs":
+      case "codeRefs":
+      case "design":
+        return (
+          <ReferencesHubSection
+            language={lang}
+            activeTab={REFERENCE_SECTION_IDS.includes(activeSection) ? activeSection : "designRefs"}
+            onTabChange={(tabId) => setActiveSection(tabId)}
+            designRefs={active.designRefs}
+            codeRefs={active.codeRefs}
+            design={active.design}
+            onDesignRefsChange={(v) => updateActive("designRefs", v)}
+            onCodeRefsChange={(v) => updateActive("codeRefs", v)}
+            onDesignChange={(v) => updateActive("design", v)}
+          />
+        );
       case "wireframe": return <WireframeSection data={active.wireframe || { iaSteps: [] }} analysis={active} language={lang} githubAIKey={githubAIKey} onChange={(v) => updateActive("wireframe", v)} />;
-      case "summary": return <SummarySection data={active.summary} language={lang} analysis={active} onChange={(v) => updateActive("summary", v)} onGenerateAIBrief={() => handleGenerateAIBrief()} />;
       // Discovery mode sections (scoped to active outcome)
       case "discoveryTable": {
         if (!activeOutcome) return <div className="text-center py-12 text-slate-500 dark:text-slate-400"><p className="text-sm">No outcome selected.</p><p className="text-xs mt-1">Create an outcome in the sidebar to start.</p></div>;
@@ -8338,44 +8470,81 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                     </svg>
                   )}
                 </button>
-                <button
-                  onClick={() => setActionsModalOpen(true)}
-                  className="px-3 py-2 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-300 dark:hover:border-slate-500 transition-colors text-sm font-medium"
-                  title="Open actions"
-                >
-                  Actions
-                </button>
+                <div className="relative" ref={actionsMenuRef}>
+                  <button
+                    onClick={() => setActionsMenuOpen((prev) => !prev)}
+                    className="px-3 py-2 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-300 dark:hover:border-slate-500 transition-colors text-sm font-medium"
+                    title="Open actions"
+                    aria-haspopup="menu"
+                    aria-expanded={actionsMenuOpen}
+                  >
+                    Actions
+                  </button>
+                  {actionsMenuOpen && (
+                    <div className="absolute right-0 mt-2 w-52 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg z-30 py-1">
+                      <button
+                        onClick={() => {
+                          setExportModalOpen(true);
+                          setActionsMenuOpen(false);
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                        role="menuitem"
+                      >
+                        Export to markdown
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-            <div className="flex gap-2 flex-wrap items-center justify-between">
-              {SECTIONS.map((s) => {
-                const lang = active.language || "en";
-                const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
-                const getCountText = () => {
-                  if (s.id === "assumptions") {
-                    const open = active.assumptions.filter(a => a.status === "Unvalidated" || a.status === "Needs Research").length;
-                    return `${open}`;
-                  }
-                  if (s.id === "questions") {
-                    const open = active.questions.filter(q => q.status === "Open").length;
-                    return `${open}`;
-                  }
-                  return undefined;
-                };
-                
-                return (
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-2 flex-wrap items-center">
+                {DESIGN_NAV_GROUPS.map((group) => (
                   <Pill
-                    key={s.id}
-                    active={activeSection === s.id}
-                    onClick={() => setActiveSection(s.id)}
-                    completion={s.id !== "assumptions" && s.id !== "questions" ? getSectionCompletion(active, s.id) : undefined}
-                    count={getCountText()}
-                    highlight={s.id === "summary"}
+                    key={group.id}
+                    active={activeDesignGroupId === group.id}
+                    onClick={() => setActiveSection(getDefaultSectionForGroup(group.id, activeSection))}
+                    count={getDesignGroupCount(active, group.id)}
                   >
-                    {t.sections[s.id] || s.label}
+                    {group.label}
                   </Pill>
-                );
-              })}
+                ))}
+              </div>
+
+              <div className="flex gap-2 flex-wrap items-center">
+                {activeDesignGroup.sections.map((sectionId) => {
+                  const getCountText = () => {
+                    if (sectionId === "assumptions") {
+                      const open = active.assumptions.filter((a) => a.status === "Unvalidated" || a.status === "Needs Research").length;
+                      return open > 0 ? `${open}` : undefined;
+                    }
+                    if (sectionId === "questions") {
+                      const open = active.questions.filter((q) => q.status === "Open").length;
+                      return open > 0 ? `${open}` : undefined;
+                    }
+                    return undefined;
+                  };
+
+                  return (
+                    <button
+                      key={sectionId}
+                      onClick={() => setActiveSection(sectionId)}
+                      className={`inline-flex items-center gap-2 px-0.5 py-1 text-xs border-b-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 dark:focus-visible:ring-slate-500 focus-visible:ring-offset-1 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-800 ${
+                        activeSection === sectionId
+                          ? "text-slate-900 dark:text-slate-100 font-semibold border-slate-700 dark:border-slate-200"
+                          : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                      }`}
+                    >
+                      <span>{t.sections[sectionId] || sectionId}</span>
+                      {getCountText() && (
+                        <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500">
+                          {getCountText()}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
@@ -8827,26 +8996,21 @@ Be concise and actionable. Respond in the same language the user writes in.`;
         {activeSection === "discoveryResearch" || activeSection === "sourceDocuments" || activeSection === "feedback" ? (
           <div className="h-full p-6 overflow-y-auto">{renderSection()}</div>
         ) : activeSection !== "opportunityTree" ? (
-          <div className={`overflow-y-auto h-full ${activeSection === "mapping" || activeSection === "discoveryTable" ? "px-6 py-8" : "max-w-2xl mx-auto px-6 py-8"}`}>
+          <div className={`overflow-y-auto h-full ${REFERENCE_SECTION_IDS.includes(activeSection) || activeSection === "discoveryTable" ? "px-6 py-8" : "max-w-2xl mx-auto px-6 py-8"}`}>
             {renderSection()}
           </div>
         ) : null}
       </div>
 
-      {/* Actions Modal */}
-      {actionsModalOpen && appMode !== "discovery" && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setActionsModalOpen(false)}>
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Actions</h3>
-              <button onClick={() => setActionsModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 text-xl leading-none">×</button>
-            </div>
-            <div className="overflow-y-auto p-5">
-              <ActionsSection data={active.actions || []} onChange={(v) => updateActive("actions", v)} />
-            </div>
-          </div>
-        </div>
-      )}
+      <ExportModal
+        open={exportModalOpen && appMode !== "discovery"}
+        onClose={() => setExportModalOpen(false)}
+        data={active.summary}
+        language={active.language || "en"}
+        onChange={(v) => updateActive("summary", v)}
+        onGenerateAIBrief={() => handleGenerateAIBrief()}
+        analysis={active}
+      />
 
       {/* GitHub Token Modal */}
       {githubTokenModalOpen && (

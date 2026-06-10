@@ -4,7 +4,8 @@ const MIN_CANVAS_WIDTH = 1200;
 const CANVAS_PADDING_X = 40;
 const NODE_WIDTH = 220;
 const NODE_HEIGHT = 84;
-const HORIZONTAL_GAP = 120;
+const CHAIN_HORIZONTAL_GAP = 180;
+const CHILD_HORIZONTAL_GAP = 120;
 const OUTCOME_Y = 32;
 const OPPORTUNITY_Y = 190;
 const SOLUTION_Y = 340;
@@ -114,7 +115,8 @@ function calculateLayout(treeData, canvasWidth = MIN_CANVAS_WIDTH) {
   const availableWidth = Math.max(MIN_CANVAS_WIDTH, canvasWidth);
 
   const opportunityCount = Math.max(1, opportunities.length);
-  const totalOpportunityWidth = opportunityCount * NODE_WIDTH + (opportunityCount - 1) * HORIZONTAL_GAP;
+  const totalOpportunityWidth =
+    opportunityCount * NODE_WIDTH + (opportunityCount - 1) * CHAIN_HORIZONTAL_GAP;
   const startOpportunityX = Math.max(
     CANVAS_PADDING_X,
     Math.floor((availableWidth - totalOpportunityWidth) / 2)
@@ -127,27 +129,29 @@ function calculateLayout(treeData, canvasWidth = MIN_CANVAS_WIDTH) {
   };
 
   opportunities.forEach((opp, oppIndex) => {
-    const oppX = startOpportunityX + oppIndex * (NODE_WIDTH + HORIZONTAL_GAP);
+    const oppX = startOpportunityX + oppIndex * (NODE_WIDTH + CHAIN_HORIZONTAL_GAP);
     layout[opp.id] = { x: oppX, y: OPPORTUNITY_Y };
 
     const solutions = opp.solutions || [];
     if (solutions.length === 0) return;
 
-    const totalSolutionsWidth = solutions.length * NODE_WIDTH + (solutions.length - 1) * HORIZONTAL_GAP;
+    const totalSolutionsWidth =
+      solutions.length * NODE_WIDTH + (solutions.length - 1) * CHILD_HORIZONTAL_GAP;
     const solutionsStartX = oppX + Math.floor((NODE_WIDTH - totalSolutionsWidth) / 2);
 
     solutions.forEach((sol, solIndex) => {
-      const solX = solutionsStartX + solIndex * (NODE_WIDTH + HORIZONTAL_GAP);
+      const solX = solutionsStartX + solIndex * (NODE_WIDTH + CHILD_HORIZONTAL_GAP);
       layout[sol.id] = { x: solX, y: SOLUTION_Y };
 
       const experiments = sol.experiments || [];
       if (experiments.length === 0) return;
 
-      const totalExperimentsWidth = experiments.length * NODE_WIDTH + (experiments.length - 1) * HORIZONTAL_GAP;
+      const totalExperimentsWidth =
+        experiments.length * NODE_WIDTH + (experiments.length - 1) * CHILD_HORIZONTAL_GAP;
       const experimentsStartX = solX + Math.floor((NODE_WIDTH - totalExperimentsWidth) / 2);
 
       experiments.forEach((exp, expIndex) => {
-        const expX = experimentsStartX + expIndex * (NODE_WIDTH + HORIZONTAL_GAP);
+        const expX = experimentsStartX + expIndex * (NODE_WIDTH + CHILD_HORIZONTAL_GAP);
         layout[exp.id] = { x: expX, y: EXPERIMENT_Y };
       });
     });
@@ -203,7 +207,11 @@ function NodeCard({
   const adjustHeight = () => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = Math.max(placeholderMinHeight, textareaRef.current.scrollHeight) + "px";
+      const hasValue = Boolean((textareaRef.current.value || "").trim());
+      const targetHeight = hasValue
+        ? Math.max(placeholderMinHeight, textareaRef.current.scrollHeight)
+        : placeholderMinHeight;
+      textareaRef.current.style.height = `${targetHeight}px`;
     }
   };
 
@@ -239,7 +247,7 @@ function NodeCard({
           setTimeout(adjustHeight, 0);
         }}
         onInput={adjustHeight}
-        className="w-full bg-transparent px-3 pb-3 pt-1 text-sm resize-none outline-none"
+        className="w-full bg-transparent px-3 pb-3 pt-1 text-sm leading-[1.4] resize-none outline-none"
         placeholder={placeholder}
         style={{ color: style.text, height: "auto", minHeight: placeholderMinHeight, overflowY: "hidden" }}
       />

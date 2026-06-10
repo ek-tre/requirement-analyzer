@@ -132,12 +132,9 @@ See **[SECURITY_REVIEW.md](SECURITY_REVIEW.md)** for comprehensive security asse
 - Compliance considerations
 - Deployment recommendations
 
-See **[SECURITY_IMPLEMENTATION.md](SECURITY_IMPLEMENTATION.md)** for technical implementation details of the security model.
-
 ## Documentation
 
 - **[Security Review](SECURITY_REVIEW.md)** - Complete security assessment for telco/enterprise deployment
-- **[Security Implementation](SECURITY_IMPLEMENTATION.md)** - Technical security architecture details
 - **[Analysis Guidelines](ANALYSIS_GUIDELINES.md)** - Best practices for analyzing requirements
 - **[UI Guidelines](UI_GUIDELINES.md)** - Design system and development standards
 
