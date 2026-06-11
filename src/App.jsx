@@ -7794,9 +7794,8 @@ Be concise and actionable. Respond in the same language the user writes in.`;
     setAnalyses((prev) => {
       const next = prev.filter((a) => a.id !== id);
       if (next.length === 0) {
-        const blank = createBlankAnalysis();
-        setActiveId(blank.id);
-        return [blank];
+        setActiveId(null);
+        return [];
       }
       if (activeId === id) setActiveId(next[0].id);
       return next;
@@ -9044,12 +9043,16 @@ Be concise and actionable. Respond in the same language the user writes in.`;
           <ModeSwitch mode={appMode} onChange={(newMode) => {
             setAppMode(newMode);
             localStorage.setItem("appMode", newMode);
-            const newProject = createBlankAnalysis(
-              newMode === "discovery" ? DEFAULT_DISCOVERY_PROJECT_NAME : "Untitled Design Task",
-              newMode
-            );
-            setAnalyses(prev => [newProject, ...prev]);
-            setActiveId(newProject.id);
+            setActiveSection(newMode === "discovery" ? "opportunityTree" : "overview");
+            if (newMode === "discovery") {
+              setActiveResearchTab("documents");
+            }
+            const modeProjects = analyses.filter(a => (a.projectMode || "design-specs") === newMode);
+            if (modeProjects.length > 0) {
+              setActiveId(modeProjects[0].id);
+            } else {
+              setActiveId(null);
+            }
           }} />
         </div>
         <div className="flex-1 flex items-center justify-center">
@@ -9192,12 +9195,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                 if (modeProjects.length > 0) {
                   setActiveId(modeProjects[0].id);
                 } else {
-                  const newProject = createBlankAnalysis(
-                    newMode === "discovery" ? DEFAULT_DISCOVERY_PROJECT_NAME : "Untitled Design Task",
-                    newMode
-                  );
-                  setAnalyses(prev => [newProject, ...prev]);
-                  setActiveId(newProject.id);
+                  setActiveId(null);
                 }
               }} 
             />
@@ -9235,12 +9233,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                   if (modeProjects.length > 0) {
                     setActiveId(modeProjects[0].id);
                   } else {
-                    const newProject = createBlankAnalysis(
-                      newMode === "discovery" ? DEFAULT_DISCOVERY_PROJECT_NAME : "Untitled Design Task",
-                      newMode
-                    );
-                    setAnalyses(prev => [newProject, ...prev]);
-                    setActiveId(newProject.id);
+                    setActiveId(null);
                   }
                 }} 
               />
@@ -9474,12 +9467,10 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                         </div>
                       )}
                       {a.phase && <VersionBadge version={a.phase} size="xs" />}
-                      {analyses.length > 1 && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); deleteAnalysis(a.id); }}
-                          className="text-slate-300 dark:text-slate-600 hover:text-red-400 dark:hover:text-red-500 opacity-0 group-hover:opacity-100 text-sm ml-1"
-                        >×</button>
-                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); deleteAnalysis(a.id); }}
+                        className="text-slate-300 dark:text-slate-600 hover:text-red-400 dark:hover:text-red-500 opacity-0 group-hover:opacity-100 text-sm ml-1"
+                      >×</button>
                     </div>
                   </div>
                 </div>
@@ -9822,12 +9813,11 @@ Be concise and actionable. Respond in the same language the user writes in.`;
           </div>
         )}
 
-        <div
-          className={appMode === "discovery" && activeSection === "opportunityTree" ? "absolute inset-0" : "absolute inset-0 opacity-0 pointer-events-none"}
-          aria-hidden={!(appMode === "discovery" && activeSection === "opportunityTree")}
-        >
-          <div className="h-full">{renderOpportunityTreeSection()}</div>
-        </div>
+        {appMode === "discovery" && activeSection === "opportunityTree" && (
+          <div className="absolute inset-0">
+            <div className="h-full">{renderOpportunityTreeSection()}</div>
+          </div>
+        )}
 
         {activeSection === "discoveryResearch" || activeSection === "sourceDocuments" || activeSection === "feedback" ? (
           <div className="h-full p-6 overflow-y-auto">{renderSection()}</div>
