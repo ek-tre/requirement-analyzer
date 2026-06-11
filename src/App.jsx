@@ -1423,16 +1423,50 @@ const tryParseJsonContent = (rawContent) => {
   return null;
 };
 
-const DEFAULT_ANALYSIS_SYSTEM_PROMPT = 'You are a UX/product design assistant. Analyze the transcript and extract information into these sections: problem (what problem and why it matters), context (user context and personas), assumptions (unvalidated assumptions), edges (edge cases), scope (in/out of scope), questions (open questions), actions (requirement analysis action items like "Interview users", "Review analytics", "Create wireframes" - NOT development/implementation tasks), notes (additional notes). Return as compact JSON with section keys and string values. Be concise.';
+// Replace the static constant with a builder function
+const buildAnalysisSystemPrompt = (opportunities = [], outcome = '') => {
+  const opportunityBlock = opportunities.length > 0
+    ? opportunities.map((o, i) => `[${i + 1}] ${o.title || o.text || JSON.stringify(o)}`).join('\n')
+    : 'No existing opportunities provided.';
+
+  return `You are a UX/product design assistant analysing interview transcripts.
+
+OUTCOME BEING EXPLORED:
+${outcome || 'Not specified.'}
+
+EXISTING OPPORTUNITIES ALREADY IDENTIFIED:
+${opportunityBlock}
+
+STRICT ANALYSIS RULES:
+- Base every claim only on what is stated in the transcript above
+- Do not draw on general telecom or B2B industry knowledge
+- For each insight, reference the specific quote or moment that supports it
+- If the transcript does not support a claim, omit it
+- Flag anything that contradicts or extends the existing opportunities listed above
+- Avoid generic recommendations that would apply to any telecom operator
+
+Extract: problem (what the user said and why it matters to them), context, needs, and any tensions or surprises in the data.`;
+};
 
 const analyzeWithGitHub = async (transcript, githubAIKey, options = {}) => {
   if (!githubAIKey) return null;
 
   const {
-    systemPrompt = DEFAULT_ANALYSIS_SYSTEM_PROMPT,
+    opportunities = [],
+    outcome = '',
+    systemPrompt = buildAnalysisSystemPrompt(opportunities, outcome),
     temperature = 0.7,
     maxTokens = 1500,
   } = options || {};
+
+  console.log("[AI] analyzeWithGitHub request", {
+    outcome,
+    opportunitiesCount: Array.isArray(opportunities) ? opportunities.length : 0,
+    opportunitiesSample: Array.isArray(opportunities)
+      ? opportunities.slice(0, 5).map((o) => String(o?.title || o?.text || o?.name || "").trim()).filter(Boolean)
+      : [],
+    transcriptLength: String(transcript || "").length,
+  });
   
   try {
     const response = await fetch('https://models.inference.ai.azure.com/chat/completions', {
@@ -6079,7 +6113,9 @@ Return ONLY a JSON array like this (no other text):
 Do NOT include explanations or any text besides the JSON array.`;
 
         const rankingResponse = await analyzeWithGitHub(rankingPrompt, githubAIKey, {
-          systemPrompt: "You are a product strategy expert. Rank opportunities by priority. Return ONLY a JSON array with name and priority fields, nothing else.",
+          opportunities,
+          outcome: normalizedOutcomeName,
+          systemPrompt: `${buildAnalysisSystemPrompt(opportunities, normalizedOutcomeName)}\n\nOUTPUT FORMAT RULES:\n- You are a product strategy expert\n- Rank opportunities by priority\n- Return ONLY a JSON array with name and priority fields, and nothing else`,
           temperature: 0.5,
           maxTokens: 1500,
         });
@@ -6211,12 +6247,21 @@ Generate 5-8 distinct opportunities. Rules:
 - Return ONLY a JSON array, no other text:
 [{"name": "...", "about": "...", "impact": "High|Medium|Low", "businessObjective": "..."}]`;
 
+      const generationContextOpportunities = (tableData.rows || [])
+        .map((row) => ({
+          title: String(row?.cells?.col_opp || "").trim(),
+          text: String(row?.cells?.col_about || "").trim(),
+        }))
+        .filter((opp) => opp.title || opp.text);
+
       if (!hasGroundingContext) {
         console.warn("[Re-analyse] Limited research context; generating outcome-based opportunities.");
       }
 
       const aiResponse = await analyzeWithGitHub(aiPrompt, githubAIKey, {
-        systemPrompt: 'You generate opportunity-only outputs for Opportunity Solution Tree analysis. Do NOT include solutions, experiments, or any recommendations. Opportunities only. Return ONLY this JSON shape, nothing else: [{"name": "...", "about": "...", "impact": "High|Medium|Low", "businessObjective": "..."}]',
+        opportunities: generationContextOpportunities,
+        outcome: normalizedOutcomeName,
+        systemPrompt: `${buildAnalysisSystemPrompt(generationContextOpportunities, normalizedOutcomeName)}\n\nOUTPUT FORMAT RULES:\n- You generate opportunity-only outputs for Opportunity Solution Tree analysis\n- Do NOT include solutions, experiments, or recommendations\n- Return ONLY this JSON array shape and nothing else:\n[{"name": "...", "about": "...", "impact": "High|Medium|Low", "businessObjective": "..."}]`,
         temperature: 0.4,
         maxTokens: 1200,
       });
@@ -6434,8 +6479,21 @@ ${researchContent ? `Research context:\n${researchContent}\n\n` : ""}For each op
 Return ONLY a JSON array with one object per opportunity in the same order (no extra text):
 [{"name": "...", "about": "...", "impact": "High|Medium|Low", "businessObjective": "..."}]`;
 
+      const enrichContextOpportunities = rowsToEnrich.map((row) => ({
+        title: String(row?.cells?.col_opp || "").trim(),
+        text: String(row?.cells?.col_about || "").trim(),
+      })).filter((opp) => opp.title || opp.text);
+
+      console.log("[Re-analyse existing] Prompt context", {
+        outcome: normalizedOutcomeName,
+        opportunitiesCount: enrichContextOpportunities.length,
+        opportunitiesSample: enrichContextOpportunities.slice(0, 5).map((opp) => opp.title || opp.text).filter(Boolean),
+      });
+
       const aiResponse = await analyzeWithGitHub(enrichPrompt, githubAIKey, {
-        systemPrompt: "You analyse existing product opportunities. Return ONLY a JSON array with name, about, impact (High/Medium/Low), and businessObjective fields. No other text.",
+        opportunities: enrichContextOpportunities,
+        outcome: normalizedOutcomeName,
+        systemPrompt: `${buildAnalysisSystemPrompt(enrichContextOpportunities, normalizedOutcomeName)}\n\nOUTPUT FORMAT RULES:\n- Analyse existing product opportunities\n- Return ONLY a JSON array with name, about, impact (High|Medium|Low), and businessObjective fields\n- No other text`,
         temperature: 0.4,
         maxTokens: 2000,
       });
@@ -6539,7 +6597,9 @@ Return ONLY a JSON array like this (no other text):
 Do NOT include explanations or any text besides the JSON array.`;
 
       const rankingResponse = await analyzeWithGitHub(rankingPrompt, githubAIKey, {
-        systemPrompt: "You are a product strategy expert. Rank opportunities by priority. Return ONLY a JSON array with name and priority fields, nothing else.",
+        opportunities,
+        outcome: normalizedOutcomeName,
+        systemPrompt: `${buildAnalysisSystemPrompt(opportunities, normalizedOutcomeName)}\n\nOUTPUT FORMAT RULES:\n- You are a product strategy expert\n- Rank opportunities by priority\n- Return ONLY a JSON array with name and priority fields, and nothing else`,
         temperature: 0.5,
         maxTokens: 1500,
       });
@@ -8924,8 +8984,34 @@ Be concise and actionable. Respond in the same language the user writes in.`;
     setAudioProcessing(true);
     
     if (githubAIKey) {
+      const transcriptOutcome = String(
+        activeOutcome?.name ||
+        activeOutcome?.opportunityTree?.outcome?.text ||
+        active?.problem?.outcome ||
+        active?.overview?.featureName ||
+        ""
+      ).trim();
+
+      const transcriptOpportunities = [
+        ...((activeOutcome?.opportunityTree?.opportunities || []).map((opp) => ({
+          title: String(opp?.text || opp?.title || opp?.name || "").trim(),
+        }))),
+        ...((activeOutcome?.discoveryTable?.rows || []).map((row) => ({
+          title: String(row?.cells?.col_opp || "").trim(),
+        }))),
+      ].filter((opp) => opp.title.length > 0);
+
+      console.log("[Audio Analysis] Prompt context", {
+        outcome: transcriptOutcome,
+        opportunitiesCount: transcriptOpportunities.length,
+        opportunitiesSample: transcriptOpportunities.slice(0, 5).map((opp) => opp.title),
+      });
+
       // Analyze with GitHub AI
-      const suggestions = await analyzeWithGitHub(transcript, githubAIKey);
+      const suggestions = await analyzeWithGitHub(transcript, githubAIKey, {
+        opportunities: transcriptOpportunities,
+        outcome: transcriptOutcome,
+      });
       if (suggestions) {
         setAiSuggestions(suggestions);
         // Initialize all sections as selected
@@ -9093,7 +9179,28 @@ Be concise and actionable. Respond in the same language the user writes in.`;
   const activeDesignGroup = DESIGN_NAV_GROUPS.find((group) => group.id === activeDesignGroupId) || DESIGN_NAV_GROUPS[0];
 
   const renderOpportunityTreeSection = () => {
-    if (!activeOutcome) return <div className="text-center py-12 text-slate-500 dark:text-slate-400"><p className="text-sm">No outcome selected.</p><p className="text-xs mt-1">Open Edit OST to create or update the current tree.</p></div>;
+    if (!activeOutcome) {
+      return (
+        <div className="h-full flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-lg font-medium text-slate-700 dark:text-slate-200 mb-2">No outcome selected.</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Create an outcome to build or update the current tree.</p>
+            <button
+              onClick={() => {
+                setOutcomeActionsOpenFor(null);
+                setOutcomeWizardOpen(true);
+                setOutcomeWizardStep(1);
+                setOutcomeWizardName("");
+                setOutcomeWizardConfirmed(false);
+              }}
+              className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+            >
+              Create Outcome
+            </button>
+          </div>
+        </div>
+      );
+    }
     const canvasData = {
       ...(activeOutcome.opportunityTree || { opportunities: [] }),
       outcome: {
@@ -9180,7 +9287,28 @@ Be concise and actionable. Respond in the same language the user writes in.`;
       case "wireframe": return <WireframeSection data={active.wireframe || { iaSteps: [] }} analysis={active} language={lang} githubAIKey={githubAIKey} onChange={(v) => updateActive("wireframe", v)} />;
       // Discovery mode sections (scoped to active outcome)
       case "discoveryTable": {
-        if (!activeOutcome) return <div className="text-center py-12 text-slate-500 dark:text-slate-400"><p className="text-sm">No outcome selected.</p><p className="text-xs mt-1">Create an outcome in the sidebar to start.</p></div>;
+        if (!activeOutcome) {
+          return (
+            <div className="h-full flex items-center justify-center">
+              <div className="text-center">
+                <p className="text-lg font-medium text-slate-700 dark:text-slate-200 mb-2">No outcome selected.</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Create an outcome to start working in the discovery table.</p>
+                <button
+                  onClick={() => {
+                    setOutcomeActionsOpenFor(null);
+                    setOutcomeWizardOpen(true);
+                    setOutcomeWizardStep(1);
+                    setOutcomeWizardName("");
+                    setOutcomeWizardConfirmed(false);
+                  }}
+                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+                >
+                  Create Outcome
+                </button>
+              </div>
+            </div>
+          );
+        }
         return <DiscoveryTableSection data={activeOutcome.discoveryTable} outcomeName={activeOutcome.name} linkedDocumentsByRowId={linkedDocumentsByRowId} onOpenEvidenceReference={openResearchDocumentFromEvidence} researchDocuments={researchDocuments} githubAIKey={githubAIKey} onChange={(v) => { updateOutcomeField(activeOutcome.id, "discoveryTable", v); syncTableToOST(v); }} />;
       }
       case "discoveryResearch":
