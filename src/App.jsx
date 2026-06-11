@@ -56,21 +56,6 @@ const loadResearchDocuments = () => {
   }
 };
 
-const STATIC_EVIDENCE_DOC_REFERENCES = {
-  col_dk: [
-    { id: "dk-enreach", label: "DK - Enreach", market: "DK" },
-    { id: "dk-jettime", label: "DK - Jettime", market: "DK" },
-    { id: "dk-visma", label: "DK - Visma", market: "DK" },
-  ],
-  col_se: [
-    { id: "se-ambea", label: "SE - Ambea", market: "SE" },
-    { id: "se-bico", label: "SE - Bico", market: "SE" },
-    { id: "se-carla", label: "SE - Carla", market: "SE" },
-    { id: "se-fedex", label: "SE - FedEx", market: "SE" },
-    { id: "se-investor", label: "SE - Investor", market: "SE" },
-  ],
-};
-
 const inferReferenceMarket = (reference) => {
   const market = typeof reference?.market === "string" ? reference.market.trim().toUpperCase() : "";
   if (market === "DK" || market === "SE") return market;
@@ -95,8 +80,7 @@ const getEvidenceReferencesForColumn = (columnId, rowReferences = []) => {
   if (columnId === "col_dk") filtered = normalizedRowReferences.filter((reference) => reference.market === "DK");
   if (columnId === "col_se") filtered = normalizedRowReferences.filter((reference) => reference.market === "SE");
 
-  const fallback = STATIC_EVIDENCE_DOC_REFERENCES[columnId] || [];
-  const combined = filtered.length > 0 ? filtered : fallback;
+  const combined = filtered;
 
   const seen = new Set();
   return combined.filter((reference) => {
@@ -527,6 +511,7 @@ const EDGE_CASE_ITEMS = [
 ];
 
 const DEFAULT_DISCOVERY_OUTCOME_NAME = "Reduce operational friction for B2B admins";
+const DEFAULT_DISCOVERY_NEW_PROJECT_NAME = "Untitled Discovery Project";
 const DIAGRAM_VISIBLE_LIMIT = 3;
 
 const PRIORITY_TEXT_RANK = {
@@ -995,7 +980,9 @@ const buildSolutionsFromTeamFields = (row, existingSolutions = []) => {
 };
 
 const scrubDiscoveryPlanningData = (discoveryTable, opportunityTree) => {
-  const tableRows = Array.isArray(discoveryTable?.rows) ? discoveryTable.rows : [];
+  const tableRows = Array.isArray(discoveryTable?.rows)
+    ? discoveryTable.rows.filter((row) => String(row?.cells?.col_opp || "").trim().length > 0)
+    : [];
 
   if (!discoveryTable && !opportunityTree) {
     return { discoveryTable, opportunityTree };
@@ -1069,28 +1056,29 @@ const migrateAnalysis = (analysis) => {
   }
 
   const migratedName = (migrated.name || "").trim();
-  const shouldPinDiscoveryName =
+  const shouldAssignDiscoveryFallbackName =
     hasDiscoveryPayload &&
     (migratedName === "" ||
       migratedName === "Untitled Discovery" ||
-      migratedName === "Sample: Dark Mode Toggle" ||
-      migratedName === DEFAULT_DISCOVERY_PROJECT_NAME);
+      migratedName === "Sample: Dark Mode Toggle");
 
-  if (shouldPinDiscoveryName) {
-    migrated.name = DEFAULT_DISCOVERY_PROJECT_NAME;
-    if (migrated.overview) {
+  if (shouldAssignDiscoveryFallbackName) {
+    migrated.name = DEFAULT_DISCOVERY_NEW_PROJECT_NAME;
+    if (migrated.overview && !(migrated.overview.featureName || "").trim()) {
       migrated.overview = {
         ...migrated.overview,
-        featureName: DEFAULT_DISCOVERY_PROJECT_NAME,
+        featureName: DEFAULT_DISCOVERY_NEW_PROJECT_NAME,
       };
     }
   }
 
   if (isSeedDiscoveryProject(migrated)) {
     migrated.isSeedDiscoveryProject = true;
-    migrated.name = DEFAULT_DISCOVERY_PROJECT_NAME;
-    if (migrated.overview) {
-      migrated.overview = { ...migrated.overview, featureName: DEFAULT_DISCOVERY_PROJECT_NAME };
+    if (!(migrated.name || "").trim()) {
+      migrated.name = DEFAULT_DISCOVERY_NEW_PROJECT_NAME;
+    }
+    if (migrated.overview && !(migrated.overview.featureName || "").trim()) {
+      migrated.overview = { ...migrated.overview, featureName: DEFAULT_DISCOVERY_NEW_PROJECT_NAME };
     }
   }
 
@@ -4475,7 +4463,7 @@ const SummarySection = ({ data, language, onChange, onGenerateAIBrief, analysis 
                     </div>
                   </div>
                   <div className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0 tabular-nums">
-                    ~{tokens > 0 ? tokens.toLocaleString() : '—'} tokens
+                    ~{tokens > 0 ? tokens.toLocaleString() : ""} tokens
                   </div>
                 </div>
               );
@@ -5880,7 +5868,7 @@ const ExpandableEvidenceCell = ({ value, references = [], onOpenReference }) => 
   const [expanded, setExpanded] = useState(false);
   const text = typeof value === "string" ? value.trim() : "";
   const hasText = text.length > 0;
-  if (!hasText && references.length === 0) return <span className="text-xs text-slate-400 italic">—</span>;
+  if (!hasText && references.length === 0) return "";
 
   const quotes = text.split("\n\n").filter(q => q.trim());
   const primaryQuote = quotes[0];
@@ -6012,11 +6000,14 @@ const DiscoveryTableSection = ({
     // Always call updateData so syncTableToOST reconciles the diagram even when
     // all candidates are duplicates or no AI rows are returned.
     const mergeRowsByName = (candidateRows = []) => {
+      const existingRows = (tableData.rows || []).filter(
+        (row) => String(row?.cells?.col_opp || "").trim().length > 0
+      );
       const newRows = (candidateRows || []).filter((candidateRow) => {
         const candidateName = String(candidateRow?.cells?.col_opp || "").trim().toLowerCase();
         return candidateName && !existingOppNames.has(candidateName);
       });
-      const mergedRows = [...tableData.rows, ...newRows];
+      const mergedRows = [...existingRows, ...newRows];
       
       // Renumber all rows sequentially by array index (1, 2, 3...)
       const renumberedRows = mergedRows.map((row, index) => ({
@@ -6043,7 +6034,6 @@ const DiscoveryTableSection = ({
             id: row.id,
             name: String(row.cells?.col_opp || "").trim(),
             about: String(row.cells?.col_about || "").trim(),
-            businessObjective: String(row.cells?.col_obj || "").trim(),
             impact: String(row.cells?.col_impact || "").trim(),
           }))
           .filter((opp) => opp.name);
@@ -6054,7 +6044,7 @@ const DiscoveryTableSection = ({
         const opportunityList = opportunities
           .map(
             (opp, idx) =>
-              `${idx + 1}. ${opp.name}\n   Objective: ${opp.businessObjective}\n   About: ${opp.about}\n   Impact: ${opp.impact}`
+              `${idx + 1}. ${opp.name}\n   About: ${opp.about}\n   Impact: ${opp.impact}`
           )
           .join("\n\n");
 
@@ -6129,7 +6119,7 @@ Do NOT include explanations or any text besides the JSON array.`;
               ...row,
               cells: {
                 ...row.cells,
-                col_iprio: String(priority),
+                col_rprio: String(priority),
               },
             };
           }
@@ -6339,45 +6329,36 @@ Generate 5-8 distinct opportunities. Rules:
         };
       };
 
-      const maxExistingRprio = (tableData.rows || []).reduce((max, row) => {
-        const n = parseFloat(row.cells?.col_rprio);
-        return Number.isFinite(n) ? Math.max(max, n) : max;
-      }, 0);
-
-      const aiRows = parsedItems
+      const aiOpportunities = parsedItems
         .filter((item) => item && (typeof item === "object" || typeof item === "string"))
-        .map((item, index) => {
-          const normalizedItem = normalizeOpportunityItem(item);
-          const opportunityName = normalizedItem.name || normalizedItem.fallbackName;
+        .map((item, index) => normalizeOpportunityItem(item, index));
 
-          return {
-            id: `row_${generateId()}`,
-            cells: {
-              col_opp: opportunityName,
-              col_diagram: "",
-              col_rprio: String(maxExistingRprio + index + 1),
-              col_iprio: "",  // Always empty: internal priority set by ranking
-              col_obj: "",     // Always empty: business objectives not set by AI
-              col_about: "",   // Always empty: only col_opp populated from AI
-              col_impact: "",  // Always empty: impact not set by AI
-              col_dk: "",      // Always empty: evidence columns not set by AI
-              col_se: "",      // Always empty: evidence columns not set by AI
-              col_proto: "",   // Always empty: evidence columns not set by AI
-              col_b2b: "",     // Always empty: evidence columns not set by AI
-              col_sol: "",
-              col_sol_team: "",
-              col_exp: "",
-              col_exp_team: "",
-            },
-          };
-        })
-        .filter((row) => row.cells.col_opp);
+      const candidateRows = (aiOpportunities || []).map(opp => ({
+        id: generateId(),
+        cells: {
+          col_opp: String(opp.name || "").trim(),
+          col_about: String(opp.about || "").trim(),
+          col_impact: String(opp.impact || "").trim(),
+          col_rprio: "",
+          col_iprio: "",
+          col_obj: "",
+          col_diagram: "",
+          col_dk: "",
+          col_se: "",
+          col_proto: "",
+          col_b2b: "",
+          col_sol_team: "",
+          col_exp_team: "",
+        }
+      }));
 
-      if (aiRows.length === 0) {
+      const filteredCandidateRows = candidateRows.filter(row => String(row.cells?.col_opp || "").trim().length > 0);
+
+      if (filteredCandidateRows.length === 0) {
         throw new Error("AI returned no usable opportunities");
       }
 
-      mergeRowsByName(aiRows);
+      mergeRowsByName(filteredCandidateRows);
     } catch (error) {
       console.error("[Re-analyse] Failed to fetch AI opportunities:", error);
       const errorMessage = String(error?.message || "");
@@ -6486,7 +6467,6 @@ Return ONLY a JSON array with one object per opportunity in the same order (no e
             ...row.cells,
             col_about: row.cells.col_about || String(enriched.about || "").trim(),
             col_impact: row.cells.col_impact || normalizedImpact,
-            col_obj: row.cells.col_obj || String(enriched.businessObjective || "").trim(),
           },
         };
       });
@@ -7229,144 +7209,7 @@ export default function RequirementAnalyzer() {
     persist();
   }, [analyses, dataLoaded, hasSecureAnalysis]);
 
-  // Enforce a stable discovery baseline when stale browser-local snapshots exist.
-  useEffect(() => {
-    if (!dataLoaded) return;
-    setAnalyses((prev) => {
-      let changed = false;
-      const seed = createSeedDiscoveryAnalysis();
-      const LEGACY_DISCOVERY_NAME = "Sample: Dark Mode Toggle";
-
-      // Keep legacy projects; we may recover outcomes from them.
-      let next = [...prev];
-
-      next = next.map((a) => {
-        const mode = a.projectMode || "design-specs";
-        if (mode !== "discovery") return a;
-        if (isSeedDiscoveryProject(a) && (a.name || "").trim() !== DEFAULT_DISCOVERY_PROJECT_NAME) {
-          changed = true;
-          return {
-            ...a,
-            isSeedDiscoveryProject: true,
-            name: DEFAULT_DISCOVERY_PROJECT_NAME,
-            overview: a.overview ? { ...a.overview, featureName: DEFAULT_DISCOVERY_PROJECT_NAME } : a.overview,
-            updatedAt: new Date().toISOString(),
-          };
-        }
-        const currentName = (a.name || "").trim();
-        if (currentName === "Untitled Discovery" || currentName === "") {
-          changed = true;
-          return {
-            ...a,
-            name: DEFAULT_DISCOVERY_PROJECT_NAME,
-            updatedAt: new Date().toISOString(),
-          };
-        }
-        return a;
-      });
-
-      const discoveryIdx = next.findIndex((a) => {
-        const mode = a.projectMode || "design-specs";
-        return mode === "discovery" && (a.name || "").trim() === DEFAULT_DISCOVERY_PROJECT_NAME;
-      });
-
-      if (discoveryIdx === -1) {
-        changed = true;
-        next = [seed, ...next];
-      } else {
-        const target = next[discoveryIdx];
-        const seededOutcome = seed.outcomes[0];
-        const existingOutcome = (target.outcomes || []).find((o) => o.name === DEFAULT_DISCOVERY_OUTCOME_NAME);
-        const hasSeedRows = !!existingOutcome?.discoveryTable?.rows?.length;
-
-        if (!hasSeedRows) {
-          changed = true;
-          const existingOutcomes = target.outcomes || [];
-          const outcomeId = existingOutcome?.id || seededOutcome.id;
-          const nextSeedOutcome = {
-            ...seededOutcome,
-            id: outcomeId,
-          };
-
-          const nextOutcomes = existingOutcome
-            ? existingOutcomes.map((o) => (o.id === existingOutcome.id ? nextSeedOutcome : o))
-            : [nextSeedOutcome, ...existingOutcomes];
-
-          const nextActiveOutcomeId =
-            target.activeOutcomeId && nextOutcomes.some((o) => o.id === target.activeOutcomeId)
-              ? target.activeOutcomeId
-              : nextOutcomes[0]?.id || outcomeId;
-
-          next[discoveryIdx] = {
-            ...target,
-            projectMode: "discovery",
-            outcomes: nextOutcomes,
-            activeOutcomeId: nextActiveOutcomeId,
-            updatedAt: new Date().toISOString(),
-          };
-        }
-
-        // Recover outcomes from legacy discovery project into the B2B project.
-        const legacyProjects = next.filter((p) => {
-          const mode = p.projectMode || "design-specs";
-          return mode === "discovery" && (p.name || "").trim() === LEGACY_DISCOVERY_NAME;
-        });
-
-        if (legacyProjects.length > 0) {
-          const b2bProject = next[discoveryIdx];
-          const existingOutcomes = b2bProject.outcomes || [];
-          const existingNames = new Set(
-            existingOutcomes.map((o) => (o.name || "").trim().toLowerCase()).filter(Boolean)
-          );
-
-          const recovered = [];
-          for (const legacy of legacyProjects) {
-            for (const outcome of legacy.outcomes || []) {
-              const outcomeName = (outcome.name || "").trim();
-              if (!outcomeName) continue;
-
-              const hasRows = (outcome.discoveryTable?.rows?.length || 0) > 0;
-              const hasTreeOpps = (outcome.opportunityTree?.opportunities?.length || 0) > 0;
-              if (!hasRows && !hasTreeOpps) continue;
-
-              const key = outcomeName.toLowerCase();
-              if (existingNames.has(key)) continue;
-
-              recovered.push({
-                ...outcome,
-                id: generateId(),
-              });
-              existingNames.add(key);
-            }
-          }
-
-          if (recovered.length > 0) {
-            changed = true;
-            next[discoveryIdx] = {
-              ...b2bProject,
-              outcomes: [...existingOutcomes, ...recovered],
-              activeOutcomeId:
-                b2bProject.activeOutcomeId &&
-                [...existingOutcomes, ...recovered].some((o) => o.id === b2bProject.activeOutcomeId)
-                  ? b2bProject.activeOutcomeId
-                  : [...existingOutcomes, ...recovered][0]?.id || b2bProject.activeOutcomeId,
-              updatedAt: new Date().toISOString(),
-            };
-          }
-
-          if (legacyProjects.length > 0) {
-            changed = true;
-            next = next.filter((project) => {
-              const mode = project.projectMode || "design-specs";
-              return !(mode === "discovery" && (project.name || "").trim() === LEGACY_DISCOVERY_NAME);
-            });
-          }
-        }
-      }
-
-      return changed ? next : prev;
-    });
-  }, [dataLoaded]);
+  // Keep startup neutral: do not force-inject a seeded discovery baseline.
 
   // Repair malformed discovery projects that have no outcomes after reload.
   useEffect(() => {
@@ -7769,7 +7612,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                       col_diagram: "",
                       col_rprio: p.value.col_rprio || "",
                       col_iprio: p.value.col_iprio || "",
-                      col_obj: p.value.col_obj || "",
+                      col_obj: "",
                       col_about: p.value.col_about || "",
                       col_impact: p.value.col_impact || "",
                       col_dk: p.value.col_dk || "",
@@ -7844,7 +7687,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
               col_diagram: "",
               col_rprio: value.col_rprio || "",
               col_iprio: value.col_iprio || "",
-              col_obj: value.col_obj || "",
+              col_obj: "",
               col_about: value.col_about || "",
               col_impact: value.col_impact || "",
               col_dk: value.col_dk || "",
@@ -7877,7 +7720,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
   }, [active, activeOutcome, updateActive]);
 
   const createNew = () => {
-    const newA = createBlankAnalysis(appMode === "discovery" ? DEFAULT_DISCOVERY_PROJECT_NAME : "Untitled Design Task", appMode);
+    const newA = createBlankAnalysis(appMode === "discovery" ? DEFAULT_DISCOVERY_NEW_PROJECT_NAME : "Untitled Design Task", appMode);
     setAnalyses((prev) => [newA, ...prev]);
     setActiveId(newA.id);
     setActiveSection(appMode === "discovery" ? "opportunityTree" : "overview");
