@@ -918,13 +918,29 @@ const createGeneratedDiscoveryTable = (outcomeName) => ({
 });
 
 const createOutcome = (name, options = {}) => {
+  const shouldGenerate = options?.generateOpportunities === true;
+  const generatedTable = shouldGenerate ? createGeneratedDiscoveryTable(name) : null;
+  const generatedRows = Array.isArray(generatedTable?.rows) ? generatedTable.rows : [];
+  const topPriorityRowIds = getTopPriorityRowIds(generatedRows, 3);
+
+  const generatedOpportunities = generatedRows.map((row) => ({
+    id: `opp_${generateId()}`,
+    text: row?.cells?.col_opp || "",
+    sourceRowId: row.id,
+    showInDiagram: topPriorityRowIds.has(row.id),
+    solutions: buildSolutionsFromTeamFields(row, []),
+  }));
+
   return {
     id: generateId(),
     name,
     status: "active",
     createdAt: new Date().toISOString(),
-    discoveryTable: null,
-    opportunityTree: { outcome: { id: "outcome", text: name }, opportunities: [] },
+    discoveryTable: generatedTable,
+    opportunityTree: {
+      outcome: { id: "outcome", text: name },
+      opportunities: generatedOpportunities,
+    },
   };
 };
 
@@ -10038,8 +10054,8 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                   <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
                     <p className="text-sm font-medium text-amber-800 dark:text-amber-300 mb-2">This requires fresh analysis work</p>
                     <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-1.5 list-disc pl-4">
-                      <li>Creating a new outcome starts with an empty discovery table</li>
-                      <li>You'll need to re-analyse source documents through the lens of this new outcome</li>
+                      <li>Creating a new outcome starts with generated starter opportunities</li>
+                      <li>Re-analyse source documents through the lens of this outcome to replace placeholders with evidence-backed opportunities</li>
                       <li>This ensures each outcome has focused, relevant opportunities</li>
                     </ul>
                   </div>
