@@ -1042,24 +1042,8 @@ const scrubDiscoveryPlanningData = (discoveryTable, opportunityTree) => {
 };
 
 const createInitialAnalyses = () => {
-  const seed = createSeedDiscoveryAnalysis();
-  const storedOpportunityTree = loadStoredOpportunityTree();
-
-  const sanitizedStoredTree = scrubDiscoveryPlanningData(
-    seed.outcomes?.[0]?.discoveryTable || null,
-    storedOpportunityTree
-  ).opportunityTree;
-
-  if (!sanitizedStoredTree || !Array.isArray(seed.outcomes) || seed.outcomes.length === 0) {
-    return [seed];
-  }
-
-  return [{
-    ...seed,
-    outcomes: seed.outcomes.map((outcome, index) =>
-      index === 0 ? { ...outcome, opportunityTree: sanitizedStoredTree } : outcome
-    ),
-  }];
+  // Start with empty analyses - all data should come from AI generation or user creation
+  return [];
 };
 
 // Migrate old analysis data to current structure
@@ -1667,6 +1651,7 @@ const analyzePastedText = async (text, githubAIKey) => {
 };
 
 function getCompletion(analysis) {
+  if (!analysis) return 0;
   let filled = 0, total = 0;
   const check = (val) => { total++; if (val && String(val).trim()) filled++; };
   Object.values(analysis.overview).forEach(check);
@@ -1684,6 +1669,7 @@ function getCompletion(analysis) {
 }
 
 function getTaskCount(analysis) {
+  if (!analysis) return { filled: 0, total: 0 };
   let filled = 0, total = 0;
   const check = (val) => { total++; if (val && String(val).trim()) filled++; };
   Object.values(analysis.overview).forEach(check);
@@ -1701,6 +1687,7 @@ function getTaskCount(analysis) {
 }
 
 function getSectionCompletion(analysis, sectionId) {
+  if (!analysis) return 0;
   let filled = 0, total = 0;
   const check = (val) => { total++; if (val && String(val).trim()) filled++; };
   switch (sectionId) {
@@ -9170,14 +9157,6 @@ Be concise and actionable. Respond in the same language the user writes in.`;
     setMergeModes({});
   };
 
-  if (!active) return null;
-  const completion = getCompletion(active);
-  const { filled: tasksFilled, total: tasksTotal } = getTaskCount(active);
-  const lang = active.language || "en";
-  const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
-  const activeDesignGroupId = getDesignGroupForSection(activeSection);
-  const activeDesignGroup = DESIGN_NAV_GROUPS.find((group) => group.id === activeDesignGroupId) || DESIGN_NAV_GROUPS[0];
-
   // Count analyses per phase for the filter
   const phaseCounts = useMemo(() => {
     const counts = { All: analyses.length, Untagged: 0 };
@@ -9196,6 +9175,42 @@ Be concise and actionable. Respond in the same language the user writes in.`;
       return a.phase === phaseFilter;
     });
   }, [analyses, phaseFilter]);
+
+  if (!active) {
+    return (
+      <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200">
+        <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-6 py-3">
+          <ModeSwitch mode={appMode} onChange={(newMode) => {
+            setAppMode(newMode);
+            localStorage.setItem("appMode", newMode);
+            const newProject = createBlankAnalysis(
+              newMode === "discovery" ? DEFAULT_DISCOVERY_PROJECT_NAME : "Untitled Design Task",
+              newMode
+            );
+            setAnalyses(prev => [newProject, ...prev]);
+            setActiveId(newProject.id);
+          }} />
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-lg font-medium text-slate-700 dark:text-slate-200 mb-4">No projects yet</p>
+            <button
+              onClick={createNew}
+              className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+            >
+              Create {appMode === "discovery" ? "Discovery" : "Design"} Project
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  const completion = getCompletion(active);
+  const { filled: tasksFilled, total: tasksTotal } = getTaskCount(active);
+  const lang = active.language || "en";
+  const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
+  const activeDesignGroupId = getDesignGroupForSection(activeSection);
+  const activeDesignGroup = DESIGN_NAV_GROUPS.find((group) => group.id === activeDesignGroupId) || DESIGN_NAV_GROUPS[0];
 
   const renderOpportunityTreeSection = () => {
     if (!activeOutcome) return <div className="text-center py-12 text-slate-500 dark:text-slate-400"><p className="text-sm">No outcome selected.</p><p className="text-xs mt-1">Open Edit OST to create or update the current tree.</p></div>;
@@ -9225,6 +9240,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
   const showSidebar = sidebarOpen;
 
   const renderSection = () => {
+    if (!active) return null;
     const lang = active.language || "en";
     switch (activeSection) {
       case "overview": return <OverviewSection 
