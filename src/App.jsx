@@ -6017,11 +6017,21 @@ const DiscoveryTableSection = ({
         return candidateName && !existingOppNames.has(candidateName);
       });
       const mergedRows = [...tableData.rows, ...newRows];
-      updateData({ rows: mergedRows });
+      
+      // Renumber all rows sequentially by array index (1, 2, 3...)
+      const renumberedRows = mergedRows.map((row, index) => ({
+        ...row,
+        cells: {
+          ...row.cells,
+          col_rprio: String(index + 1),
+        },
+      }));
+      
+      updateData({ rows: renumberedRows });
       
       // After merging, rank all opportunities
-      if (mergedRows.length > 0 && githubAIKey) {
-        rankAllOpportunities(mergedRows);
+      if (renumberedRows.length > 0 && githubAIKey) {
+        rankAllOpportunities(renumberedRows);
       }
     };
 
@@ -6170,12 +6180,20 @@ Do NOT include explanations or any text besides the JSON array.`;
       const analysisSource = researchContent || tableEvidenceContent || "No research content available.";
       const hasGroundingContext = Boolean(researchContent || tableEvidenceContent);
 
+      // Build existing opportunities list to avoid duplicates
+      const existingOppList = (tableData.rows || [])
+        .map((row) => String(row.cells?.col_opp || "").trim())
+        .filter(Boolean)
+        .join("\n");
+      
+      const existingOppsSection = existingOppList ? `\nExisting opportunities (do not generate these or close variants):\n${existingOppList}\n\nGenerate only NEW opportunities not already covered above.` : "";
+
       const aiPrompt = `You are a product discovery expert applying the Opportunity Solution Tree method.
 
 Outcome: ${normalizedOutcomeName}
 
 Research:
-${analysisSource}
+${analysisSource}${existingOppsSection}
 
 Generate 5-8 distinct opportunities. Rules:
 - An opportunity is a specific user need or friction point found in the research
@@ -6338,14 +6356,14 @@ Generate 5-8 distinct opportunities. Rules:
               col_opp: opportunityName,
               col_diagram: "",
               col_rprio: String(maxExistingRprio + index + 1),
-              col_iprio: "",
-              col_obj: normalizedItem.businessObjective,
-              col_about: normalizedItem.about,
-              col_impact: normalizedItem.impact,
-              col_dk: "",
-              col_se: "",
-              col_proto: "",
-              col_b2b: "",
+              col_iprio: "",  // Always empty: internal priority set by ranking
+              col_obj: "",     // Always empty: business objectives not set by AI
+              col_about: "",   // Always empty: only col_opp populated from AI
+              col_impact: "",  // Always empty: impact not set by AI
+              col_dk: "",      // Always empty: evidence columns not set by AI
+              col_se: "",      // Always empty: evidence columns not set by AI
+              col_proto: "",   // Always empty: evidence columns not set by AI
+              col_b2b: "",     // Always empty: evidence columns not set by AI
               col_sol: "",
               col_sol_team: "",
               col_exp: "",
