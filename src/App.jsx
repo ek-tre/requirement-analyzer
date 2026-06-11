@@ -9823,8 +9823,8 @@ Be concise and actionable. Respond in the same language the user writes in.`;
         )}
 
         <div
-          className={activeSection === "opportunityTree" ? "absolute inset-0" : "absolute inset-0 opacity-0 pointer-events-none"}
-          aria-hidden={activeSection !== "opportunityTree"}
+          className={appMode === "discovery" && activeSection === "opportunityTree" ? "absolute inset-0" : "absolute inset-0 opacity-0 pointer-events-none"}
+          aria-hidden={!(appMode === "discovery" && activeSection === "opportunityTree")}
         >
           <div className="h-full">{renderOpportunityTreeSection()}</div>
         </div>
