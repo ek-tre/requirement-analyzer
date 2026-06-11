@@ -199,9 +199,12 @@ function NodeCard({
   const placeholderMinHeight = useMemo(() => {
     if (!placeholder) return 56;
 
-    // Approximate wrapped placeholder lines for a 220px card.
-    const estimatedLines = Math.max(2, Math.ceil(placeholder.length / 24));
-    return Math.min(132, Math.max(56, estimatedLines * 20));
+    // Include textarea vertical padding so wrapped placeholder lines are not clipped.
+    const estimatedCharsPerLine = 18;
+    const estimatedLines = Math.max(3, Math.ceil(placeholder.length / estimatedCharsPerLine));
+    const estimatedLineHeight = 20;
+    const verticalPadding = 16;
+    return Math.min(160, Math.max(72, estimatedLines * estimatedLineHeight + verticalPadding));
   }, [placeholder]);
 
   const adjustHeight = () => {
@@ -217,7 +220,7 @@ function NodeCard({
 
   useEffect(() => {
     adjustHeight();
-  }, [text]);
+  }, [text, placeholderMinHeight]);
 
   return (
     <div
@@ -285,6 +288,7 @@ export default function OSTCanvas({
   researchDocuments = [],
   onCreateDesignTask,
   onOpenDesignTask,
+  onUploadDataRequest,
 }) {
   const treeData = useMemo(() => normalizeTreeData(data || EMPTY_TREE), [data]);
   const visibleTreeData = useMemo(
@@ -952,21 +956,36 @@ export default function OSTCanvas({
                   : null;
 
                 const experimentExtraContent = isResultEditorExpanded ? (
-                  <textarea
-                    value={resultValue}
-                    onChange={(event) => updateExperimentResult(experimentMeta, event.target.value)}
-                    onBlur={() => {
-                      if (resultValue.trim() !== "") {
-                        setResultEditorExpanded(exp.id, false);
-                      }
-                    }}
-                    placeholder="What did you learn?"
-                    className="w-full resize-none rounded-lg border border-sky-300 bg-white px-3 py-2 text-xs text-sky-900 outline-none focus:border-sky-400"
-                    rows={3}
-                    onClick={(event) => event.stopPropagation()}
-                    onMouseDown={(event) => event.stopPropagation()}
-                    onFocus={(event) => event.stopPropagation()}
-                  />
+                  <div className="space-y-2">
+                    <textarea
+                      value={resultValue}
+                      onChange={(event) => updateExperimentResult(experimentMeta, event.target.value)}
+                      onBlur={() => {
+                        if (resultValue.trim() !== "") {
+                          setResultEditorExpanded(exp.id, false);
+                        }
+                      }}
+                      placeholder="What did you learn?"
+                      className="w-full resize-none rounded-lg border border-sky-300 bg-white px-3 py-2 text-xs text-sky-900 outline-none focus:border-sky-400"
+                      rows={3}
+                      onClick={(event) => event.stopPropagation()}
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onFocus={(event) => event.stopPropagation()}
+                    />
+                    {typeof onUploadDataRequest === "function" && (
+                      <button
+                        type="button"
+                        className="inline-flex items-center rounded-md border border-sky-300 bg-white px-2.5 py-1 text-xs font-medium text-sky-700 transition-colors hover:bg-sky-50"
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onUploadDataRequest({ outcomeId, opportunityId: opp.id, solutionId: sol.id, experimentId: exp.id });
+                        }}
+                      >
+                        Upload data
+                      </button>
+                    )}
+                  </div>
                 ) : hasResult ? (
                   <button
                     type="button"

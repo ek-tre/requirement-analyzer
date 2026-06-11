@@ -4,12 +4,14 @@ import mammoth from "mammoth";
 const BASE_PATH = import.meta.env.BASE_URL + "documents/";
 const STORAGE_KEY = "documentSections";
 const RESEARCH_DOCUMENTS_KEY = "researchDocuments";
+const DOCUMENT_COMMENTS_KEY = "documentComments";
+const DOCUMENT_COMMENT_AUTHOR_KEY = "documentCommentAuthorName";
 
 // Section definitions
-const SECTIONS = [
-  { id: 1, key: "s1", label: "Interview", color: "light", borderColor: "border-l-slate-300" },
-  { id: 2, key: "s2", labelDK: "Portal Demo (DK prior portal)", labelSE: "Portal Demo (SE prior portal - Mitt3)", color: "medium", borderColor: "border-l-slate-400" },
-  { id: 3, key: "s3", label: "Prototype Test", color: "dark", borderColor: "border-l-slate-500" },
+const DEFAULT_DOCUMENT_SECTIONS = [
+  { sectionNum: 1, key: "s1", label: "Interview", color: "light", borderColor: "border-l-slate-300" },
+  { sectionNum: 2, key: "s2", label: "Portal Demo", color: "medium", borderColor: "border-l-slate-400" },
+  { sectionNum: 3, key: "s3", label: "Prototype Test", color: "dark", borderColor: "border-l-slate-500" },
 ];
 
 // Heuristic keywords for auto-detection
@@ -25,9 +27,37 @@ const SECTION3_KEYWORDS = [
   "test the new", "new portal", "redesign", "mock", "wireframe",
 ];
 
-function getSectionLabel(sectionDef, market) {
-  if (sectionDef.id === 2) return market === "DK" ? sectionDef.labelDK : sectionDef.labelSE;
-  return sectionDef.label;
+function normalizeDocumentSectionsConfig(rawConfig) {
+  const defaultsBySectionNum = new Map(DEFAULT_DOCUMENT_SECTIONS.map((section) => [section.sectionNum, section]));
+  if (!Array.isArray(rawConfig)) {
+    return DEFAULT_DOCUMENT_SECTIONS.map((section, order) => ({ ...section, order }));
+  }
+
+  const normalized = [];
+  const seen = new Set();
+
+  rawConfig.forEach((entry, index) => {
+    const sectionNum = Number(entry?.sectionNum);
+    if (!Number.isInteger(sectionNum) || sectionNum < 1 || sectionNum > 3 || seen.has(sectionNum)) return;
+    const base = defaultsBySectionNum.get(sectionNum);
+    if (!base) return;
+
+    seen.add(sectionNum);
+    normalized.push({
+      ...base,
+      label: typeof entry?.label === "string" && entry.label.trim() ? entry.label.trim() : base.label,
+      order: Number.isFinite(entry?.order) ? Number(entry.order) : index,
+    });
+  });
+
+  DEFAULT_DOCUMENT_SECTIONS.forEach((base) => {
+    if (seen.has(base.sectionNum)) return;
+    normalized.push({ ...base, order: 100 + base.sectionNum });
+  });
+
+  return normalized
+    .sort((a, b) => a.order - b.order)
+    .map((section, order) => ({ ...section, order }));
 }
 
 function loadSections() {
@@ -51,6 +81,96 @@ function loadResearchDocuments() {
 
 function saveResearchDocuments(docs) {
   localStorage.setItem(RESEARCH_DOCUMENTS_KEY, JSON.stringify(docs));
+}
+
+function getTodayDateInputValue() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isValidDateInput(value) {
+  if (typeof value !== "string") return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00`);
+  return !Number.isNaN(parsed.getTime());
+}
+
+function formatDateForDisplay(value) {
+  if (!isValidDateInput(value)) return "";
+  const [year, month, day] = value.split("-");
+  return `${day}-${month}-${year}`;
+}
+
+function normalizeComment(rawComment) {
+  if (!rawComment || typeof rawComment !== "object") return null;
+
+  const authorName = (rawComment.authorName || rawComment.author || "").trim();
+  const text = (rawComment.text || "").trim();
+  const sourceDate = typeof rawComment.commentDate === "string"
+    ? rawComment.commentDate
+    : (typeof rawComment.createdAt === "string" ? rawComment.createdAt.slice(0, 10) : "");
+  const commentDate = isValidDateInput(sourceDate) ? sourceDate : "";
+
+  if (!authorName || !text || !commentDate) return null;
+
+  return {
+    id: typeof rawComment.id === "string" && rawComment.id
+      ? rawComment.id
+      : `comment_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    authorName,
+    text,
+    commentDate,
+    createdAt: typeof rawComment.createdAt === "string" && rawComment.createdAt
+      ? rawComment.createdAt
+      : new Date().toISOString(),
+    updatedAt: typeof rawComment.updatedAt === "string" && rawComment.updatedAt
+      ? rawComment.updatedAt
+      : null,
+  };
+}
+
+function loadDocumentComments() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DOCUMENT_COMMENTS_KEY) || "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+    const normalized = {};
+    Object.entries(parsed).forEach(([docId, rawComments]) => {
+      if (!Array.isArray(rawComments)) return;
+      const comments = rawComments.map(normalizeComment).filter(Boolean);
+      normalized[docId] = comments;
+    });
+    return normalized;
+  } catch {
+    return {};
+  }
+}
+
+function saveDocumentComments(commentsByDocument) {
+  localStorage.setItem(DOCUMENT_COMMENTS_KEY, JSON.stringify(commentsByDocument));
+}
+
+function loadRememberedCommentAuthor() {
+  try {
+    return (localStorage.getItem(DOCUMENT_COMMENT_AUTHOR_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function saveRememberedCommentAuthor(authorName) {
+  localStorage.setItem(DOCUMENT_COMMENT_AUTHOR_KEY, (authorName || "").trim());
+}
+
+function createCommentDraft(authorName = loadRememberedCommentAuthor()) {
+  return {
+    authorName: (authorName || "").trim(),
+    text: "",
+    commentDate: getTodayDateInputValue(),
+  };
 }
 
 function escapeHtml(value) {
@@ -121,7 +241,14 @@ function getSectionForParagraph(idx, boundaries) {
   return 1;
 }
 
-export default function DocumentsSection({ opportunities = [], onResearchDocumentsChange }) {
+export default function DocumentsSection({
+  opportunities = [],
+  onResearchDocumentsChange,
+  openDocumentId = null,
+  onOpenDocumentHandled,
+  sectionConfig,
+  onSectionConfigChange,
+}) {
   const [documents, setDocuments] = useState([]);
   const [researchDocuments, setResearchDocuments] = useState(loadResearchDocuments);
   const [selectedDoc, setSelectedDoc] = useState(null);
@@ -133,10 +260,23 @@ export default function DocumentsSection({ opportunities = [], onResearchDocumen
   const [sections, setSections] = useState(loadSections);
   const [contextMenu, setContextMenu] = useState(null); // { idx, x, y }
   const [uploadDraft, setUploadDraft] = useState(null);
+  const [uploadCommentError, setUploadCommentError] = useState("");
   const [opportunitySearch, setOpportunitySearch] = useState("");
+  const [documentComments, setDocumentComments] = useState(loadDocumentComments);
+  const [viewerCommentDraft, setViewerCommentDraft] = useState(() => createCommentDraft());
+  const [viewerCommentError, setViewerCommentError] = useState("");
+  const [sectionEditorOpen, setSectionEditorOpen] = useState(false);
   const readerRef = useRef(null);
   const sectionRefs = useRef({});
   const uploadInputRef = useRef(null);
+  const resolvedSectionConfig = useMemo(
+    () => normalizeDocumentSectionsConfig(sectionConfig),
+    [sectionConfig]
+  );
+  const sectionByNum = useMemo(
+    () => new Map(resolvedSectionConfig.map((section) => [section.sectionNum, section])),
+    [resolvedSectionConfig]
+  );
 
   const persistResearchDocuments = useCallback((nextDocs) => {
     setResearchDocuments(nextDocs);
@@ -145,6 +285,11 @@ export default function DocumentsSection({ opportunities = [], onResearchDocumen
       onResearchDocumentsChange(nextDocs);
     }
   }, [onResearchDocumentsChange]);
+
+  const persistDocumentComments = useCallback((nextCommentsByDocument) => {
+    setDocumentComments(nextCommentsByDocument);
+    saveDocumentComments(nextCommentsByDocument);
+  }, []);
 
   useEffect(() => {
     fetch(BASE_PATH + "manifest.json")
@@ -168,6 +313,27 @@ export default function DocumentsSection({ opportunities = [], onResearchDocumen
 
     persistResearchDocuments(migrated);
   }, [researchDocuments, persistResearchDocuments]);
+
+  useEffect(() => {
+    // Normalize persisted comments once and re-save only when malformed data was present.
+    const normalized = {};
+    let changed = false;
+
+    Object.entries(documentComments).forEach(([docId, rawComments]) => {
+      if (!Array.isArray(rawComments)) {
+        changed = true;
+        normalized[docId] = [];
+        return;
+      }
+
+      const normalizedComments = rawComments.map(normalizeComment).filter(Boolean);
+      normalized[docId] = normalizedComments;
+      if (normalizedComments.length !== rawComments.length) changed = true;
+    });
+
+    if (!changed) return;
+    persistDocumentComments(normalized);
+  }, [documentComments, persistDocumentComments]);
 
   const paragraphs = useMemo(() => {
     if (!docContent) return [];
@@ -235,7 +401,9 @@ export default function DocumentsSection({ opportunities = [], onResearchDocumen
         tag: "DK",
         opportunityIds: [],
         content,
+        comments: [],
       });
+      setUploadCommentError("");
       setOpportunitySearch("");
     } catch {
       // Keep this lightweight; errors are non-fatal for the page.
@@ -249,6 +417,13 @@ export default function DocumentsSection({ opportunities = [], onResearchDocumen
     const trimmedName = (uploadDraft.name || "").trim();
     if (!trimmedName) return;
 
+    const draftComments = Array.isArray(uploadDraft.comments) ? uploadDraft.comments : [];
+    const normalizedDraftComments = draftComments.map(normalizeComment).filter(Boolean);
+    if (normalizedDraftComments.length !== draftComments.length) {
+      setUploadCommentError("Each comment must include author name, text, and a valid date.");
+      return;
+    }
+
     const newDocument = {
       id: `doc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       name: trimmedName,
@@ -260,7 +435,14 @@ export default function DocumentsSection({ opportunities = [], onResearchDocumen
 
     const updated = [newDocument, ...researchDocuments];
     persistResearchDocuments(updated);
+    if (normalizedDraftComments.length > 0) {
+      persistDocumentComments({
+        ...documentComments,
+        [newDocument.id]: normalizedDraftComments,
+      });
+    }
     setUploadDraft(null);
+    setUploadCommentError("");
 
     const listDoc = {
       id: newDocument.id,
@@ -274,8 +456,56 @@ export default function DocumentsSection({ opportunities = [], onResearchDocumen
     };
     setSelectedDoc(listDoc);
     setDocContent(plainTextToHtml(newDocument.content));
+    setViewerCommentDraft(createCommentDraft());
+    setViewerCommentError("");
     setOpportunitySearch("");
-  }, [uploadDraft, researchDocuments, persistResearchDocuments]);
+  }, [uploadDraft, researchDocuments, documentComments, persistResearchDocuments, persistDocumentComments]);
+
+  const addUploadCommentDraft = useCallback(() => {
+    setUploadDraft((prev) => {
+      if (!prev) return prev;
+      const currentComments = Array.isArray(prev.comments) ? prev.comments : [];
+      return {
+        ...prev,
+        comments: [
+          ...currentComments,
+          {
+            id: `draft_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            ...createCommentDraft(),
+          },
+        ],
+      };
+    });
+  }, []);
+
+  const updateUploadCommentDraft = useCallback((commentId, field, value) => {
+    setUploadDraft((prev) => {
+      if (!prev) return prev;
+      const currentComments = Array.isArray(prev.comments) ? prev.comments : [];
+      return {
+        ...prev,
+        comments: currentComments.map((comment) => (
+          comment.id === commentId ? { ...comment, [field]: value } : comment
+        )),
+      };
+    });
+    if (field === "authorName") {
+      saveRememberedCommentAuthor(value);
+    }
+    setUploadCommentError("");
+  }, []);
+
+  const removeUploadCommentDraft = useCallback((commentId) => {
+    setUploadDraft((prev) => {
+      if (!prev) return prev;
+      const currentComments = Array.isArray(prev.comments) ? prev.comments : [];
+      return {
+        ...prev,
+        comments: currentComments.filter((comment) => comment.id !== commentId),
+      };
+    });
+    setUploadCommentError("");
+  }, []);
 
   const toggleOpportunityInDraft = useCallback((opportunityId) => {
     setUploadDraft((prev) => {
@@ -303,6 +533,56 @@ export default function DocumentsSection({ opportunities = [], onResearchDocumen
     return opportunities.filter((opp) => (opp.text || "").toLowerCase().includes(term));
   }, [opportunities, opportunitySearch]);
 
+  const commentsForSelectedDocument = useMemo(() => {
+    if (!selectedDoc?.id) return [];
+    const comments = documentComments[selectedDoc.id];
+    return Array.isArray(comments) ? comments : [];
+  }, [documentComments, selectedDoc]);
+
+  useEffect(() => {
+    setViewerCommentDraft({
+      authorName: loadRememberedCommentAuthor(),
+      text: "",
+      commentDate: getTodayDateInputValue(),
+    });
+    setViewerCommentError("");
+  }, [selectedDoc?.id]);
+
+  const addViewerComment = useCallback(() => {
+    if (!selectedDoc?.id) return;
+
+    const normalized = normalizeComment({
+      id: `comment_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      authorName: viewerCommentDraft.authorName,
+      text: viewerCommentDraft.text,
+      commentDate: viewerCommentDraft.commentDate,
+      createdAt: new Date().toISOString(),
+    });
+
+    if (!normalized) {
+      setViewerCommentError("Author name, comment text, and date are required.");
+      return;
+    }
+
+    const current = Array.isArray(documentComments[selectedDoc.id]) ? documentComments[selectedDoc.id] : [];
+    persistDocumentComments({
+      ...documentComments,
+      [selectedDoc.id]: [normalized, ...current],
+    });
+    saveRememberedCommentAuthor(normalized.authorName);
+    setViewerCommentDraft(createCommentDraft(normalized.authorName));
+    setViewerCommentError("");
+  }, [selectedDoc, viewerCommentDraft, documentComments, persistDocumentComments]);
+
+  const removeViewerComment = useCallback((commentId) => {
+    if (!selectedDoc?.id) return;
+    const current = Array.isArray(documentComments[selectedDoc.id]) ? documentComments[selectedDoc.id] : [];
+    persistDocumentComments({
+      ...documentComments,
+      [selectedDoc.id]: current.filter((comment) => comment.id !== commentId),
+    });
+  }, [selectedDoc, documentComments, persistDocumentComments]);
+
   const allDocuments = useMemo(() => {
     const uploaded = researchDocuments.map((doc) => ({
       id: doc.id,
@@ -319,6 +599,23 @@ export default function DocumentsSection({ opportunities = [], onResearchDocumen
     }));
     return [...uploaded, ...documents];
   }, [researchDocuments, documents]);
+
+  useEffect(() => {
+    if (!openDocumentId) return;
+
+    const target = allDocuments.find((doc) => doc.id === openDocumentId);
+    if (!target) {
+      if (allDocuments.length > 0 && typeof onOpenDocumentHandled === "function") {
+        onOpenDocumentHandled();
+      }
+      return;
+    }
+
+    loadDocument(target);
+    if (typeof onOpenDocumentHandled === "function") {
+      onOpenDocumentHandled();
+    }
+  }, [openDocumentId, allDocuments, loadDocument, onOpenDocumentHandled]);
 
   const setBoundary = useCallback((sectionNum, paragraphIdx) => {
     if (!selectedDoc) return;
@@ -365,6 +662,41 @@ export default function DocumentsSection({ opportunities = [], onResearchDocumen
   const markets = [...new Set(allDocuments.map((d) => d.market).filter(Boolean))];
 
   const hasSections = boundaries.section2Start !== null || boundaries.section3Start !== null;
+  const jumpSections = useMemo(
+    () => resolvedSectionConfig.filter((section) => {
+      if (section.sectionNum === 1) return true;
+      if (section.sectionNum === 2) return boundaries.section2Start !== null;
+      if (section.sectionNum === 3) return boundaries.section3Start !== null;
+      return false;
+    }),
+    [resolvedSectionConfig, boundaries]
+  );
+
+  const updateSectionLabel = useCallback((sectionNum, nextLabel) => {
+    if (typeof onSectionConfigChange !== "function") return;
+    const nextConfig = resolvedSectionConfig.map((section) => (
+      section.sectionNum === sectionNum
+        ? { ...section, label: nextLabel }
+        : section
+    ));
+    onSectionConfigChange(nextConfig);
+  }, [resolvedSectionConfig, onSectionConfigChange]);
+
+  const moveSection = useCallback((index, direction) => {
+    if (typeof onSectionConfigChange !== "function") return;
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= resolvedSectionConfig.length) return;
+
+    const nextConfig = [...resolvedSectionConfig];
+    const [moved] = nextConfig.splice(index, 1);
+    nextConfig.splice(targetIndex, 0, moved);
+    onSectionConfigChange(nextConfig.map((section, order) => ({ ...section, order })));
+  }, [resolvedSectionConfig, onSectionConfigChange]);
+
+  const resetSectionConfig = useCallback(() => {
+    if (typeof onSectionConfigChange !== "function") return;
+    onSectionConfigChange(DEFAULT_DOCUMENT_SECTIONS.map((section, order) => ({ ...section, order })));
+  }, [onSectionConfigChange]);
 
   // Build rendered content with section dividers
   const renderContent = () => {
@@ -377,9 +709,9 @@ export default function DocumentsSection({ opportunities = [], onResearchDocumen
 
       // Insert section divider when section changes
       if (currentSection !== lastSection) {
-        const sectionDef = SECTIONS[currentSection - 1];
+        const sectionDef = sectionByNum.get(currentSection) || DEFAULT_DOCUMENT_SECTIONS[currentSection - 1];
         const anchorId = `${selectedDoc.id}-s${currentSection}`;
-        const label = getSectionLabel(sectionDef, selectedDoc.market);
+        const label = sectionDef?.label || `Section ${currentSection}`;
         const bgColors = { light: "bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700", medium: "bg-slate-100 dark:bg-slate-800/60 border-slate-300 dark:border-slate-600", dark: "bg-slate-200 dark:bg-slate-800/80 border-slate-400 dark:border-slate-500" };
         items.push(
           <div
@@ -397,7 +729,7 @@ export default function DocumentsSection({ opportunities = [], onResearchDocumen
       }
 
       // Render paragraph with section color coding
-      const sectionDef = SECTIONS[currentSection - 1];
+      const sectionDef = sectionByNum.get(currentSection) || DEFAULT_DOCUMENT_SECTIONS[currentSection - 1];
       items.push(
         <div
           key={`p-${i}`}
@@ -491,6 +823,64 @@ export default function DocumentsSection({ opportunities = [], onResearchDocumen
                   </div>
                 )}
               </div>
+
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-300">Comments</label>
+                  <button
+                    type="button"
+                    onClick={addUploadCommentDraft}
+                    className="px-2 py-1 text-[10px] border border-slate-200 dark:border-slate-600 rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+                  >
+                    Add comment
+                  </button>
+                </div>
+
+                {(uploadDraft.comments || []).length === 0 ? (
+                  <p className="text-[11px] text-slate-400">No comments added yet.</p>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {(uploadDraft.comments || []).map((comment) => (
+                      <div key={comment.id} className="rounded-md border border-slate-200 dark:border-slate-600 p-2 space-y-2">
+                        <div className="flex flex-col gap-2 items-start">
+                          <input
+                            type="date"
+                            value={comment.commentDate || ""}
+                            disabled
+                            className="w-[12ch] px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 focus:outline-none"
+                          />
+                          <input
+                            type="text"
+                            value={comment.authorName || ""}
+                            onChange={(e) => updateUploadCommentDraft(comment.id, "authorName", e.target.value)}
+                            placeholder="Your name"
+                            className="w-full max-w-[68ch] px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                          />
+                        </div>
+                        <textarea
+                          value={comment.text || ""}
+                          onChange={(e) => updateUploadCommentDraft(comment.id, "text", e.target.value)}
+                          rows={2}
+                          placeholder="Comment context"
+                          className="w-full max-w-[68ch] px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-300 resize-y"
+                        />
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => removeUploadCommentDraft(comment.id)}
+                            className="px-2 py-1 text-[10px] border border-slate-200 dark:border-slate-600 rounded-md text-slate-500 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {uploadCommentError && (
+                  <p className="mt-1 text-[11px] text-rose-600 dark:text-rose-400">{uploadCommentError}</p>
+                )}
+              </div>
             </div>
             <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-end gap-2">
               <button
@@ -574,6 +964,11 @@ export default function DocumentsSection({ opportunities = [], onResearchDocumen
                       {doc.market || "N/A"}
                     </span>
                     <span className="truncate block">{doc.company || doc.label}</span>
+                    {(documentComments[doc.id] || []).length > 0 && (
+                      <span className="ml-auto inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 text-[10px] font-medium shrink-0">
+                        {(documentComments[doc.id] || []).length}
+                      </span>
+                    )}
                   </div>
                 </button>
               );
@@ -614,20 +1009,154 @@ export default function DocumentsSection({ opportunities = [], onResearchDocumen
                       </div>
                     )}
                   </div>
-                  {hasSections && (
+                  {(hasSections || typeof onSectionConfigChange === "function") && (
                     <div className="flex gap-1">
-                      <button onClick={() => scrollToSection(1)} className="px-2 py-1 text-[10px] font-medium rounded border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" title="Jump to Interview section">§1</button>
-                      {boundaries.section2Start !== null && (
-                        <button onClick={() => scrollToSection(2)} className="px-2 py-1 text-[10px] font-medium rounded border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" title="Jump to Portal Demo section">§2</button>
-                      )}
-                      {boundaries.section3Start !== null && (
-                        <button onClick={() => scrollToSection(3)} className="px-2 py-1 text-[10px] font-medium rounded border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" title="Jump to Prototype Test section">§3</button>
+                      {jumpSections.map((section) => (
+                        <button
+                          key={section.sectionNum}
+                          onClick={() => scrollToSection(section.sectionNum)}
+                          className="px-2 py-1 text-[10px] font-medium rounded border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                          title={`Jump to ${section.label} section`}
+                        >
+                          {`§${section.sectionNum}`}
+                        </button>
+                      ))}
+                      {typeof onSectionConfigChange === "function" && (
+                        <button
+                          type="button"
+                          onClick={() => setSectionEditorOpen((prev) => !prev)}
+                          className="px-2 py-1 text-[10px] font-medium rounded border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                          title="Edit section labels and order"
+                        >
+                          Edit
+                        </button>
                       )}
                     </div>
                   )}
                 </div>
+                {sectionEditorOpen && typeof onSectionConfigChange === "function" && (
+                  <div className="mt-3 p-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 space-y-2">
+                    {resolvedSectionConfig.map((section, index) => (
+                      <div key={section.sectionNum} className="flex items-center gap-2">
+                        <span className="w-6 text-[10px] font-semibold text-slate-500 dark:text-slate-400">{`§${section.sectionNum}`}</span>
+                        <input
+                          type="text"
+                          value={section.label}
+                          onChange={(e) => updateSectionLabel(section.sectionNum, e.target.value)}
+                          className="flex-1 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => moveSection(index, -1)}
+                          disabled={index === 0}
+                          className="px-2 py-1 text-[10px] border border-slate-200 dark:border-slate-600 rounded-md text-slate-500 dark:text-slate-300 disabled:opacity-40"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveSection(index, 1)}
+                          disabled={index === resolvedSectionConfig.length - 1}
+                          className="px-2 py-1 text-[10px] border border-slate-200 dark:border-slate-600 rounded-md text-slate-500 dark:text-slate-300 disabled:opacity-40"
+                        >
+                          ↓
+                        </button>
+                      </div>
+                    ))}
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={resetSectionConfig}
+                        className="px-2 py-1 text-[10px] border border-slate-200 dark:border-slate-600 rounded-md text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+                      >
+                        Reset defaults
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {!hasSections && paragraphs.length > 0 && (
                   <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">⚠ No section boundaries detected — click any paragraph to set them</p>
+                )}
+              </div>
+
+              <div className="mb-4 pb-3 border-b border-slate-200 dark:border-slate-700 space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-200">Comments</h4>
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                    {commentsForSelectedDocument.length} total
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-2 items-start">
+                  <input
+                    type="date"
+                    value={viewerCommentDraft.commentDate}
+                    disabled
+                    className="w-[12ch] px-2.5 py-1.5 text-xs border border-slate-200 dark:border-slate-600 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 focus:outline-none"
+                  />
+                  <input
+                    type="text"
+                    value={viewerCommentDraft.authorName}
+                    onChange={(e) => {
+                      saveRememberedCommentAuthor(e.target.value);
+                      setViewerCommentDraft((prev) => ({ ...prev, authorName: e.target.value }));
+                      setViewerCommentError("");
+                    }}
+                    placeholder="Your name"
+                    className="w-full max-w-[68ch] px-2.5 py-1.5 text-xs border border-slate-200 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  />
+                </div>
+                <textarea
+                  value={viewerCommentDraft.text}
+                  onChange={(e) => {
+                    setViewerCommentDraft((prev) => ({ ...prev, text: e.target.value }));
+                    setViewerCommentError("");
+                  }}
+                  rows={3}
+                  placeholder="Add context for this document"
+                  className="w-full max-w-[68ch] px-2.5 py-1.5 text-xs border border-slate-200 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-300 resize-y"
+                />
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={addViewerComment}
+                    disabled={
+                      !viewerCommentDraft.authorName.trim()
+                      || !viewerCommentDraft.text.trim()
+                      || !isValidDateInput(viewerCommentDraft.commentDate)
+                    }
+                    className="px-3 py-1.5 text-xs rounded-md bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 hover:opacity-90"
+                  >
+                    Add comment
+                  </button>
+                </div>
+                {viewerCommentError && (
+                  <p className="text-[11px] text-rose-600 dark:text-rose-400">{viewerCommentError}</p>
+                )}
+
+                {commentsForSelectedDocument.length === 0 ? (
+                  <p className="text-[11px] text-slate-400">No comments yet for this document.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {commentsForSelectedDocument.map((comment) => (
+                      <div key={comment.id} className="rounded-md border border-slate-200 dark:border-slate-600 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">{comment.authorName}</p>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500">{formatDateForDisplay(comment.commentDate)}</span>
+                            <button
+                              type="button"
+                              onClick={() => removeViewerComment(comment.id)}
+                              className="px-2 py-1 text-[10px] border border-slate-200 dark:border-slate-600 rounded-md text-slate-500 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap">{comment.text}</p>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
 
@@ -647,18 +1176,22 @@ export default function DocumentsSection({ opportunities = [], onResearchDocumen
               <div className="px-3 py-1 text-[10px] text-slate-400 border-b border-slate-100 dark:border-slate-700">
                 Paragraph ¶{contextMenu.idx}
               </div>
-              <button
-                onClick={() => setBoundary(2, contextMenu.idx)}
-                className="w-full text-left px-3 py-1.5 text-xs text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/30 transition-colors"
-              >
-                Set as §2 start ({selectedDoc?.market === "DK" ? "Portal Demo DK" : "Portal Demo Mitt3"})
-              </button>
-              <button
-                onClick={() => setBoundary(3, contextMenu.idx)}
-                className="w-full text-left px-3 py-1.5 text-xs text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-colors"
-              >
-                Set as §3 start (Prototype Test)
-              </button>
+              {resolvedSectionConfig
+                .filter((section) => section.sectionNum > 1)
+                .map((section) => {
+                  const colorClass = section.sectionNum === 2
+                    ? "text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/30"
+                    : "text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/30";
+                  return (
+                    <button
+                      key={section.sectionNum}
+                      onClick={() => setBoundary(section.sectionNum, contextMenu.idx)}
+                      className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${colorClass}`}
+                    >
+                      {`Set as §${section.sectionNum} start (${section.label})`}
+                    </button>
+                  );
+                })}
               <div className="border-t border-slate-100 dark:border-slate-700 mt-1 pt-1">
                 <button
                   onClick={() => setContextMenu(null)}
