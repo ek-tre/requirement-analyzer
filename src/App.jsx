@@ -6625,6 +6625,18 @@ const DiscoveryTableSection = ({
   const indexedResearchDocs = Number(researchIndexing?.indexedCount || 0);
   const expectedResearchDocs = Number(researchIndexing?.expectedCount || 0);
   const outcomeQuality = useMemo(() => validateOutcomeQuality(outcomeName), [outcomeName]);
+  const researchTokenSet = useMemo(() => {
+    const combined = groundedResearchDocuments
+      .map((doc) => String(doc?.content || doc?.text || doc?.notes || ""))
+      .join("\n");
+    return toTokenSet(combined);
+  }, [groundedResearchDocuments]);
+
+  const outcomeResearchAlignment = useMemo(
+    () => hasOutcomeResearchAlignmentWithResearch(outcomeName, researchTokenSet),
+    [outcomeName, researchTokenSet]
+  );
+
   const aiReadinessBlocker = useMemo(() => {
     if (isResearchIndexing) {
       if (expectedResearchDocs > 0) {
@@ -6657,17 +6669,6 @@ const DiscoveryTableSection = ({
   const aiButtonTitle = isAiActionBusy ? aiActionBusyReason : aiReadinessBlocker;
   const disableFindMoreButton = isAiActionBusy || Boolean(aiReadinessBlocker);
   const disableEnrichButton = isAiActionBusy || Boolean(aiReadinessBlocker);
-  const researchTokenSet = useMemo(() => {
-    const combined = groundedResearchDocuments
-      .map((doc) => String(doc?.content || doc?.text || doc?.notes || ""))
-      .join("\n");
-    return toTokenSet(combined);
-  }, [groundedResearchDocuments]);
-
-  const outcomeResearchAlignment = useMemo(
-    () => hasOutcomeResearchAlignmentWithResearch(outcomeName, researchTokenSet),
-    [outcomeName, researchTokenSet]
-  );
 
   const IPRIO_RANK = { now: 0, next: 1, later: 2 };
   const getIprioRank = (val) => {
