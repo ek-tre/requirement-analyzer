@@ -8054,14 +8054,14 @@ export default function RequirementAnalyzer() {
     }));
   }, []);
 
-  const openAboutModal = useCallback(() => {
+  const openAboutPage = useCallback(() => {
+    setActiveSection("about");
     setAboutSubpage("about");
     setAboutExpandedSections((prev) => ({
       ...prev,
       analysis: true,
       data: true,
     }));
-    setAboutModalOpen(true);
   }, []);
 
   useEffect(() => {
@@ -8170,8 +8170,8 @@ export default function RequirementAnalyzer() {
           OST
         </button>
         <button
-          onClick={openAboutModal}
-          className="text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
+          onClick={openAboutPage}
+          className={`transition-colors ${activeSection === "about" ? "text-slate-900 dark:text-slate-100 font-medium" : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"}`}
           title="About this tool"
         >
           About
@@ -11190,6 +11190,261 @@ Be concise and actionable. Respond in the same language the user writes in.`;
   const showSidebarToggle = !sidebarOpen;
   const showSidebar = sidebarOpen;
 
+  const renderAboutPage = () => {
+    return (
+      <div className="max-w-3xl mx-auto px-6 py-8">
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-6">About</h1>
+        
+        {/* Subpage Tabs */}
+        <div className="flex gap-2 mb-6 border-b border-slate-200 dark:border-slate-700">
+          <button
+            onClick={() => setAboutSubpage("about")}
+            className={`px-4 py-3 border-b-2 transition-colors ${
+              aboutSubpage === "about"
+                ? "border-indigo-600 dark:border-indigo-500 text-indigo-600 dark:text-indigo-500 font-medium"
+                : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
+            }`}
+          >
+            About
+          </button>
+          <button
+            onClick={() => setAboutSubpage("potential")}
+            className={`px-4 py-3 border-b-2 transition-colors ${
+              aboutSubpage === "potential"
+                ? "border-indigo-600 dark:border-indigo-500 text-indigo-600 dark:text-indigo-500 font-medium"
+                : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
+            }`}
+          >
+            Potential Improvements
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="space-y-4 text-sm text-slate-600 dark:text-slate-300">
+          {aboutSubpage === "about" && (
+            <>
+              {/* Analysis Accordion */}
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <button
+                  onClick={() => toggleAboutSection("analysis")}
+                  className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                  aria-expanded={aboutExpandedSections.analysis}
+                >
+                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Analysis</span>
+                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.analysis ? "−" : "+"}</span>
+                </button>
+                {aboutExpandedSections.analysis && (
+                  <div className="px-4 py-4 space-y-5 border-t border-slate-100 dark:border-slate-700">
+                    <p className="text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wide font-semibold">Pipeline overview</p>
+                    <div className="space-y-4">
+                      <div className="flex gap-3">
+                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">1</span>
+                        <div>
+                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Pre-flight validation</p>
+                          <p className="text-slate-500 dark:text-slate-400">Before any API call, the outcome is checked for minimum length, a measurable action verb, and domain context. At least one meaningful token in the outcome must overlap with the research corpus. This gate prevents empty-evidence runs.</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">2</span>
+                        <div>
+                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Chunk extraction</p>
+                          <p className="text-slate-500 dark:text-slate-400">Each linked research document is split into natural paragraphs. When a document has fewer than 3 paragraphs, it falls back to 120-word sliding windows. A typical set of 3 interview transcripts produces 40-80 chunks.</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">3</span>
+                        <div>
+                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Relevance scoring: semantic then keyword</p>
+                          <p className="text-slate-500 dark:text-slate-400">All chunks plus the outcome are sent in a single batch to <span className="font-mono text-xs bg-slate-100 dark:bg-slate-700 px-1 rounded">text-embedding-3-small</span>. Each chunk is scored by cosine similarity against the outcome vector. If the embeddings call fails, the system falls back to keyword overlap scoring (token overlap divided by square root of chunk length), using the same tokenizer used elsewhere in the app.</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">4</span>
+                        <div>
+                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Context packing</p>
+                          <p className="text-slate-500 dark:text-slate-400">Chunks are sorted by score descending. The highest-scoring chunks are packed into a 6,000-character budget in relevance order. Lower-scoring chunks are discarded before the LLM sees them.</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">5</span>
+                        <div>
+                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Grounded generation</p>
+                          <p className="text-slate-500 dark:text-slate-400">The selected chunks are passed to GPT-4o as the only evidence section. The prompt treats the outcome as a fixed question and returns an empty list if evidence is insufficient, which reduces hallucinated opportunities.</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">6</span>
+                        <div>
+                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Post-generation validation</p>
+                          <p className="text-slate-500 dark:text-slate-400">Each AI-generated opportunity is filtered. Vague statements are rejected, near-restatements of the outcome are dropped, and remaining opportunities must overlap with research evidence.</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">7</span>
+                        <div>
+                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Ranking pass</p>
+                          <p className="text-slate-500 dark:text-slate-400">A second GPT-4o call ranks surviving opportunities by strategic priority (user impact, business value, feasibility) and writes back to the Research Priority column. This is optional and failure does not block results.</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
+                      <p className="text-xs text-slate-400 dark:text-slate-500">Token usage: about 5k tokens per re-analysis run (embedding batch). GPT-4o calls are counted separately against your GitHub Copilot allowance.</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Data Accordion */}
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <button
+                  onClick={() => toggleAboutSection("data")}
+                  className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                  aria-expanded={aboutExpandedSections.data}
+                >
+                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Data</span>
+                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.data ? "−" : "+"}</span>
+                </button>
+                {aboutExpandedSections.data && (
+                  <div className="px-4 py-4 space-y-4 border-t border-slate-100 dark:border-slate-700">
+                    <div>
+                      <p className="font-medium text-slate-700 dark:text-slate-200">How storage works today</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-500 dark:text-slate-400">
+                        <li>Edits are auto-saved in browser local storage for fast local persistence.</li>
+                        <li>If any analysis uses secure mode, analysis payloads are stored encrypted in local storage.</li>
+                        <li>The app also syncs projects to the server via the projects API and uses local data as fallback when server loading fails.</li>
+                        <li>GitHub Gist sync is manual snapshot backup and restore, not live collaboration sync.</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-700 dark:text-slate-200">Why data might disappear</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-500 dark:text-slate-400">
+                        <li>Browser/site data is cleared by user action, policy, or privacy tooling.</li>
+                        <li>Private or incognito sessions end and discard local storage.</li>
+                        <li>The app is opened from a different browser profile, device, or origin.</li>
+                        <li>Corrupted or unreadable local entries are ignored or removed during recovery.</li>
+                        <li>A project was manually deleted.</li>
+                        <li>The server is unavailable and there is no valid local fallback copy.</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {aboutSubpage === "potential" && (
+            <>
+              {/* Potential Data */}
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <button
+                  onClick={() => toggleAboutSection("potentialData")}
+                  className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                  aria-expanded={aboutExpandedSections.potentialData}
+                >
+                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Data</span>
+                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialData ? "−" : "+"}</span>
+                </button>
+                {aboutExpandedSections.potentialData && (
+                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700">
+                    <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
+                      <li>Persist all document-related data in the same primary persistence layer instead of split local-only paths.</li>
+                      <li>Add versioned local backups instead of relying on a single overwrite key.</li>
+                      <li>Do not hard-delete unreadable encrypted blobs immediately; quarantine first and offer recovery/export options.</li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              {/* Potential Reliability */}
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <button
+                  onClick={() => toggleAboutSection("potentialReliability")}
+                  className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                  aria-expanded={aboutExpandedSections.potentialReliability}
+                >
+                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Reliability and recovery</span>
+                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialReliability ? "−" : "+"}</span>
+                </button>
+                {aboutExpandedSections.potentialReliability && (
+                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700">
+                    <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
+                      <li>Add a rolling snapshot restore option for accidental overwrites.</li>
+                      <li>Add soft delete and undo for project deletion.</li>
+                      <li>Add health checks for local save integrity and restore paths.</li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              {/* Potential UX */}
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <button
+                  onClick={() => toggleAboutSection("potentialUx")}
+                  className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                  aria-expanded={aboutExpandedSections.potentialUx}
+                >
+                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">UX and transparency</span>
+                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialUx ? "−" : "+"}</span>
+                </button>
+                {aboutExpandedSections.potentialUx && (
+                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700">
+                    <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
+                      <li>Show visible save health status: last local save, last server sync, and sync errors.</li>
+                      <li>Warn users proactively in private mode and near storage quota limits.</li>
+                      <li>Clarify when backup actions are snapshots versus live sync.</li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              {/* Potential Consistency */}
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <button
+                  onClick={() => toggleAboutSection("potentialConsistency")}
+                  className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                  aria-expanded={aboutExpandedSections.potentialConsistency}
+                >
+                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Consistency and concurrency</span>
+                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialConsistency ? "−" : "+"}</span>
+                </button>
+                {aboutExpandedSections.potentialConsistency && (
+                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700">
+                    <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
+                      <li>Add conflict handling for concurrent edits across multiple clients.</li>
+                      <li>Add cross-tab coordination so multiple open tabs do not silently overwrite each other.</li>
+                      <li>Consider revision IDs or optimistic concurrency checks on save.</li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              {/* Potential Security */}
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <button
+                  onClick={() => toggleAboutSection("potentialSecurity")}
+                  className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                  aria-expanded={aboutExpandedSections.potentialSecurity}
+                >
+                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Security mode hardening</span>
+                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialSecurity ? "−" : "+"}</span>
+                </button>
+                {aboutExpandedSections.potentialSecurity && (
+                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700">
+                    <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
+                      <li>Move from static-derived encryption material to user- or tenant-specific key material.</li>
+                      <li>Add key rotation and explicit migration support for encrypted payloads.</li>
+                      <li>Provide diagnostics for decryption failures without destructive cleanup by default.</li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderSection = () => {
     if (!active) return null;
     const lang = active.language || "en";
@@ -11356,7 +11611,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                   )}
                 </button>
                 <button
-                  onClick={openAboutModal}
+                  onClick={openAboutPage}
                   className="px-3 py-2 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors text-sm"
                   title="About this tool"
                 >
@@ -11918,9 +12173,13 @@ Be concise and actionable. Respond in the same language the user writes in.`;
           </div>
         )}
 
+        {activeSection === "about" && (
+          <div className="h-full overflow-y-auto">{renderAboutPage()}</div>
+        )}
+
         {activeSection === "discoveryResearch" || activeSection === "sourceDocuments" || activeSection === "feedback" ? (
           <div className="h-full p-6 overflow-y-auto">{renderSection()}</div>
-        ) : activeSection !== "opportunityTree" ? (
+        ) : activeSection !== "opportunityTree" && activeSection !== "about" ? (
           <div className={`overflow-y-auto h-full ${REFERENCE_SECTION_IDS.includes(activeSection) || activeSection === "discoveryTable" ? "px-6 py-8" : "max-w-2xl mx-auto px-6 py-8"}`}>
             {renderSection()}
           </div>
@@ -11936,264 +12195,6 @@ Be concise and actionable. Respond in the same language the user writes in.`;
         onGenerateAIBrief={() => handleGenerateAIBrief()}
         analysis={active}
       />
-
-      {/* About Modal */}
-      {aboutModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setAboutModalOpen(false)}>
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between shrink-0">
-              <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">About</h2>
-              <button onClick={() => setAboutModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 text-xl leading-none">×</button>
-            </div>
-            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 shrink-0">
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setAboutSubpage("about")}
-                  className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
-                    aboutSubpage === "about"
-                      ? "bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-100 border-slate-300 dark:border-slate-600 font-medium"
-                      : "bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-600 hover:border-slate-300 dark:hover:border-slate-500"
-                  }`}
-                >
-                  About
-                </button>
-                <button
-                  onClick={() => setAboutSubpage("potential")}
-                  className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
-                    aboutSubpage === "potential"
-                      ? "bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-100 border-slate-300 dark:border-slate-600 font-medium"
-                      : "bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-600 hover:border-slate-300 dark:hover:border-slate-500"
-                  }`}
-                >
-                  Potential improvements
-                </button>
-              </div>
-            </div>
-            <div className="px-6 py-5 overflow-y-auto space-y-3 text-sm text-slate-600 dark:text-slate-300">
-              {aboutSubpage === "about" && (
-                <>
-                  <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-                    <button
-                      onClick={() => toggleAboutSection("analysis")}
-                      className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                      aria-expanded={aboutExpandedSections.analysis}
-                    >
-                      <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Analysis</span>
-                      <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.analysis ? "−" : "+"}</span>
-                    </button>
-                    {aboutExpandedSections.analysis && (
-                      <div className="px-4 py-4 space-y-5 border-t border-slate-100 dark:border-slate-700">
-                        <p className="text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wide font-semibold">Pipeline overview</p>
-
-                        <div className="space-y-4">
-                          <div className="flex gap-3">
-                            <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">1</span>
-                            <div>
-                              <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Pre-flight validation</p>
-                              <p className="text-slate-500 dark:text-slate-400">Before any API call, the outcome is checked for minimum length, a measurable action verb, and domain context. At least one meaningful token in the outcome must overlap with the research corpus. This gate prevents empty-evidence runs.</p>
-                            </div>
-                          </div>
-
-                          <div className="flex gap-3">
-                            <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">2</span>
-                            <div>
-                              <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Chunk extraction</p>
-                              <p className="text-slate-500 dark:text-slate-400">Each linked research document is split into natural paragraphs. When a document has fewer than 3 paragraphs, it falls back to 120-word sliding windows. A typical set of 3 interview transcripts produces 40-80 chunks.</p>
-                            </div>
-                          </div>
-
-                          <div className="flex gap-3">
-                            <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">3</span>
-                            <div>
-                              <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Relevance scoring: semantic then keyword</p>
-                              <p className="text-slate-500 dark:text-slate-400">All chunks plus the outcome are sent in a single batch to <span className="font-mono text-xs bg-slate-100 dark:bg-slate-700 px-1 rounded">text-embedding-3-small</span>. Each chunk is scored by cosine similarity against the outcome vector. If the embeddings call fails, the system falls back to keyword overlap scoring (token overlap divided by square root of chunk length), using the same tokenizer used elsewhere in the app.</p>
-                            </div>
-                          </div>
-
-                          <div className="flex gap-3">
-                            <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">4</span>
-                            <div>
-                              <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Context packing</p>
-                              <p className="text-slate-500 dark:text-slate-400">Chunks are sorted by score descending. The highest-scoring chunks are packed into a 6,000-character budget in relevance order. Lower-scoring chunks are discarded before the LLM sees them.</p>
-                            </div>
-                          </div>
-
-                          <div className="flex gap-3">
-                            <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">5</span>
-                            <div>
-                              <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Grounded generation</p>
-                              <p className="text-slate-500 dark:text-slate-400">The selected chunks are passed to GPT-4o as the only evidence section. The prompt treats the outcome as a fixed question and returns an empty list if evidence is insufficient, which reduces hallucinated opportunities.</p>
-                            </div>
-                          </div>
-
-                          <div className="flex gap-3">
-                            <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">6</span>
-                            <div>
-                              <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Post-generation validation</p>
-                              <p className="text-slate-500 dark:text-slate-400">Each AI-generated opportunity is filtered. Vague statements are rejected, near-restatements of the outcome are dropped, and remaining opportunities must overlap with research evidence.</p>
-                            </div>
-                          </div>
-
-                          <div className="flex gap-3">
-                            <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">7</span>
-                            <div>
-                              <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Ranking pass</p>
-                              <p className="text-slate-500 dark:text-slate-400">A second GPT-4o call ranks surviving opportunities by strategic priority (user impact, business value, feasibility) and writes back to the Research Priority column. This is optional and failure does not block results.</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
-                          <p className="text-xs text-slate-400 dark:text-slate-500">Token usage: about 5k tokens per re-analysis run (embedding batch). GPT-4o calls are counted separately against your GitHub Copilot allowance.</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-                    <button
-                      onClick={() => toggleAboutSection("data")}
-                      className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                      aria-expanded={aboutExpandedSections.data}
-                    >
-                      <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Data</span>
-                      <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.data ? "−" : "+"}</span>
-                    </button>
-                    {aboutExpandedSections.data && (
-                      <div className="px-4 py-4 space-y-4 border-t border-slate-100 dark:border-slate-700">
-                        <div>
-                          <p className="font-medium text-slate-700 dark:text-slate-200">How storage works today</p>
-                          <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-500 dark:text-slate-400">
-                            <li>Edits are auto-saved in browser local storage for fast local persistence.</li>
-                            <li>If any analysis uses secure mode, analysis payloads are stored encrypted in local storage.</li>
-                            <li>The app also syncs projects to the server via the projects API and uses local data as fallback when server loading fails.</li>
-                            <li>GitHub Gist sync is manual snapshot backup and restore, not live collaboration sync.</li>
-                          </ul>
-                        </div>
-                        <div>
-                          <p className="font-medium text-slate-700 dark:text-slate-200">Why data might disappear</p>
-                          <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-500 dark:text-slate-400">
-                            <li>Browser/site data is cleared by user action, policy, or privacy tooling.</li>
-                            <li>Private or incognito sessions end and discard local storage.</li>
-                            <li>The app is opened from a different browser profile, device, or origin.</li>
-                            <li>Corrupted or unreadable local entries are ignored or removed during recovery.</li>
-                            <li>A project was manually deleted.</li>
-                            <li>The server is unavailable and there is no valid local fallback copy.</li>
-                          </ul>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-
-              {aboutSubpage === "potential" && (
-                <>
-                  <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-                    <button
-                      onClick={() => toggleAboutSection("potentialData")}
-                      className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                      aria-expanded={aboutExpandedSections.potentialData}
-                    >
-                      <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Data</span>
-                      <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialData ? "−" : "+"}</span>
-                    </button>
-                    {aboutExpandedSections.potentialData && (
-                      <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700">
-                        <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
-                          <li>Persist all document-related data in the same primary persistence layer instead of split local-only paths.</li>
-                          <li>Add versioned local backups instead of relying on a single overwrite key.</li>
-                          <li>Do not hard-delete unreadable encrypted blobs immediately; quarantine first and offer recovery/export options.</li>
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-                    <button
-                      onClick={() => toggleAboutSection("potentialReliability")}
-                      className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                      aria-expanded={aboutExpandedSections.potentialReliability}
-                    >
-                      <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Reliability and recovery</span>
-                      <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialReliability ? "−" : "+"}</span>
-                    </button>
-                    {aboutExpandedSections.potentialReliability && (
-                      <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700">
-                        <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
-                          <li>Add a rolling snapshot restore option for accidental overwrites.</li>
-                          <li>Add soft delete and undo for project deletion.</li>
-                          <li>Add health checks for local save integrity and restore paths.</li>
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-                    <button
-                      onClick={() => toggleAboutSection("potentialUx")}
-                      className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                      aria-expanded={aboutExpandedSections.potentialUx}
-                    >
-                      <span className="text-sm font-medium text-slate-800 dark:text-slate-100">UX and transparency</span>
-                      <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialUx ? "−" : "+"}</span>
-                    </button>
-                    {aboutExpandedSections.potentialUx && (
-                      <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700">
-                        <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
-                          <li>Show visible save health status: last local save, last server sync, and sync errors.</li>
-                          <li>Warn users proactively in private mode and near storage quota limits.</li>
-                          <li>Clarify when backup actions are snapshots versus live sync.</li>
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-                    <button
-                      onClick={() => toggleAboutSection("potentialConsistency")}
-                      className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                      aria-expanded={aboutExpandedSections.potentialConsistency}
-                    >
-                      <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Consistency and concurrency</span>
-                      <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialConsistency ? "−" : "+"}</span>
-                    </button>
-                    {aboutExpandedSections.potentialConsistency && (
-                      <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700">
-                        <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
-                          <li>Add conflict handling for concurrent edits across multiple clients.</li>
-                          <li>Add cross-tab coordination so multiple open tabs do not silently overwrite each other.</li>
-                          <li>Consider revision IDs or optimistic concurrency checks on save.</li>
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-                    <button
-                      onClick={() => toggleAboutSection("potentialSecurity")}
-                      className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                      aria-expanded={aboutExpandedSections.potentialSecurity}
-                    >
-                      <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Security mode hardening</span>
-                      <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialSecurity ? "−" : "+"}</span>
-                    </button>
-                    {aboutExpandedSections.potentialSecurity && (
-                      <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700">
-                        <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
-                          <li>Move from static-derived encryption material to user- or tenant-specific key material.</li>
-                          <li>Add key rotation and explicit migration support for encrypted payloads.</li>
-                          <li>Provide diagnostics for decryption failures without destructive cleanup by default.</li>
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* GitHub Token Modal */}
       {githubTokenModalOpen && (
