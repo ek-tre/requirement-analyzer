@@ -477,16 +477,16 @@ export default function DocumentsSection({
     if (!file) return;
 
     const lowerName = file.name.toLowerCase();
-    if (!lowerName.endsWith(".txt") && !lowerName.endsWith(".docx")) return;
+    if (!lowerName.endsWith(".txt") && !lowerName.endsWith(".md") && !lowerName.endsWith(".docx")) return;
 
     setUploading(true);
     try {
       let content = "";
-      if (lowerName.endsWith(".txt")) {
+      if (lowerName.endsWith(".txt") || lowerName.endsWith(".md")) {
         content = await new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-          reader.onerror = () => reject(new Error("Failed to read .txt file"));
+          reader.onerror = () => reject(new Error("Failed to read text file"));
           reader.readAsText(file);
         });
       } else {
@@ -1211,7 +1211,7 @@ export default function DocumentsSection({
       <input
         ref={uploadInputRef}
         type="file"
-        accept=".docx,.txt"
+        accept=".docx,.txt,.md"
         onChange={handleUploadFile}
         className="hidden"
       />

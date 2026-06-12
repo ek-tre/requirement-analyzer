@@ -12131,6 +12131,43 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                       placeholder="e.g. Reduce task completion time for admins"
                       className="w-full px-3 py-2.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 dark:focus:ring-indigo-500"
                     />
+                    <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
+                      <p className="text-xs font-medium text-blue-900 dark:text-blue-200 mb-2">
+                        Based on Teresa Torres' Outcome-Driven Innovation framework:
+                      </p>
+                      <ul className="text-xs text-blue-800 dark:text-blue-300 space-y-1.5 list-disc pl-4">
+                        <li><span className="font-medium">Include a user/actor:</span> Who is affected? (admins, new users, customers)</li>
+                        <li><span className="font-medium">Focus on impact, not the solution:</span> What behavior or metric changes?</li>
+                        <li><span className="font-medium">Include a measurable action:</span> Reduce, increase, improve + specific metric</li>
+                        <li><span className="font-medium">Measure the value creation moment:</span> When does the user actually benefit?</li>
+                      </ul>
+                      <div className="mt-2.5 pt-2.5 border-t border-blue-200 dark:border-blue-700">
+                        <p className="text-xs font-semibold text-blue-900 dark:text-blue-200 mb-1.5">Examples:</p>
+                        <div className="space-y-1.5 text-xs">
+                          <div>
+                            <p className="text-blue-700 dark:text-blue-400 font-medium">✓ Strong outcomes (outcome = impact):</p>
+                            <ul className="ml-3 text-blue-700 dark:text-blue-400 list-disc">
+                              <li>Reduce task completion time for support agents by 30%</li>
+                              <li>Increase retention of customers in their first 30 days</li>
+                              <li>Reduce support team handling time on billing issues</li>
+                              <li>Increase the percentage of onboarded enterprise users who run their first workflow</li>
+                            </ul>
+                          </div>
+                          <div>
+                            <p className="text-blue-600 dark:text-blue-500 font-medium">✗ Weak outcomes (outputs or too vague):</p>
+                            <ul className="ml-3 text-blue-600 dark:text-blue-500 list-disc">
+                              <li>Build a mobile app (→ outputs, not outcome)</li>
+                              <li>Improve user experience (→ too vague, not measurable)</li>
+                              <li>Increase feature adoption (→ traction metric, not impact)</li>
+                              <li>Make onboarding faster (→ no specific metric or user)</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-xs text-blue-700 dark:text-blue-400 mt-2 pt-2 border-t border-blue-200 dark:border-blue-700">
+                        👉 Learn more: <a href="https://www.producttalk.org/shifting-from-outputs-to-outcomes/" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-600 dark:hover:text-blue-300">producttalk.org/shifting-from-outputs-to-outcomes/</a>
+                      </p>
+                    </div>
                   </div>
                 </div>
               )}
