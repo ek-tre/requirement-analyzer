@@ -7980,7 +7980,6 @@ export default function RequirementAnalyzer() {
     potentialReliability: false,
     potentialUx: false,
     potentialConsistency: false,
-    potentialSecurity: false,
   });
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [githubTokenModalOpen, setGithubTokenModalOpen] = useState(false);
@@ -11424,26 +11423,6 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                 )}
               </div>
 
-              {/* Potential Security */}
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-                <button
-                  onClick={() => toggleAboutSection("potentialSecurity")}
-                  className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                  aria-expanded={aboutExpandedSections.potentialSecurity}
-                >
-                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Security mode hardening</span>
-                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialSecurity ? "−" : "+"}</span>
-                </button>
-                {aboutExpandedSections.potentialSecurity && (
-                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700">
-                    <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
-                      <li>Move from static-derived encryption material to user- or tenant-specific key material.</li>
-                      <li>Add key rotation and explicit migration support for encrypted payloads.</li>
-                      <li>Provide diagnostics for decryption failures without destructive cleanup by default.</li>
-                    </ul>
-                  </div>
-                )}
-              </div>
             </>
           )}
         </div>
