@@ -6,6 +6,15 @@ const STORAGE_KEY = "documentSections";
 const RESEARCH_DOCUMENTS_KEY = "researchDocuments";
 const DOCUMENT_COMMENTS_KEY = "documentComments";
 const DOCUMENT_COMMENT_AUTHOR_KEY = "documentCommentAuthorName";
+const DEFAULT_RESEARCH_FOLDER_ID = "";
+const DEFAULT_RESEARCH_FOLDER_NAME = "";
+const UNLINKED_FOLDER_LABEL = "No folder linked";
+
+function normalizeFolderId(rawValue) {
+  const source = String(rawValue || "").trim().toLowerCase();
+  const slug = source.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return slug ? `folder_${slug}` : "";
+}
 
 // Section definitions
 const DEFAULT_DOCUMENT_SECTIONS = [
@@ -73,7 +82,30 @@ function saveSections(data) {
 function loadResearchDocuments() {
   try {
     const parsed = JSON.parse(localStorage.getItem(RESEARCH_DOCUMENTS_KEY) || "[]");
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.map((doc) => {
+      if (!doc || typeof doc !== "object") return doc;
+
+      const opportunityIds = Array.isArray(doc.opportunityIds)
+        ? doc.opportunityIds
+        : (() => {
+            const legacyId = typeof doc.opportunityId === "string" && doc.opportunityId ? doc.opportunityId : "";
+            return legacyId ? [legacyId] : [];
+          })();
+
+      const folderId = typeof doc.folderId === "string" ? doc.folderId.trim() : "";
+      const folderName = typeof doc.folderName === "string" ? doc.folderName.trim() : "";
+      const normalizedFolderId = folderId || normalizeFolderId(folderName) || "";
+      const normalizedFolderName = folderName || "";
+
+      return {
+        ...doc,
+        opportunityIds,
+        folderId: normalizedFolderId,
+        folderName: normalizedFolderName,
+      };
+    });
   } catch {
     return [];
   }
@@ -248,8 +280,12 @@ export default function DocumentsSection({
   onOpenDocumentHandled,
   sectionConfig,
   onSectionConfigChange,
+  linkedFolderId = "",
+  linkedFolderName = "",
+  availableFolders = [],
+  onLinkFolderChange,
+  onDeleteResearchFolder,
 }) {
-  const [documents, setDocuments] = useState([]);
   const [researchDocuments, setResearchDocuments] = useState(loadResearchDocuments);
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [docContent, setDocContent] = useState("");
@@ -266,6 +302,8 @@ export default function DocumentsSection({
   const [viewerCommentDraft, setViewerCommentDraft] = useState(() => createCommentDraft());
   const [viewerCommentError, setViewerCommentError] = useState("");
   const [sectionEditorOpen, setSectionEditorOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [deleteDialog, setDeleteDialog] = useState(null);
   const readerRef = useRef(null);
   const sectionRefs = useRef({});
   const uploadInputRef = useRef(null);
@@ -277,6 +315,36 @@ export default function DocumentsSection({
     () => new Map(resolvedSectionConfig.map((section) => [section.sectionNum, section])),
     [resolvedSectionConfig]
   );
+
+  const resolvedLinkedFolderId =
+    (typeof linkedFolderId === "string" && linkedFolderId.trim()) || "";
+  const resolvedLinkedFolderName =
+    (typeof linkedFolderName === "string" && linkedFolderName.trim()) || "";
+
+  const folderOptions = useMemo(() => {
+    const byId = new Map();
+
+    (availableFolders || []).forEach((folder) => {
+      const id = typeof folder?.id === "string" ? folder.id.trim() : "";
+      const name = typeof folder?.name === "string" ? folder.name.trim() : "";
+      if (!id) return;
+      byId.set(id, { id, name: name || "Untitled folder" });
+    });
+
+    (researchDocuments || []).forEach((doc) => {
+      if (!doc || typeof doc !== "object") return;
+      const id = typeof doc.folderId === "string" ? doc.folderId.trim() : "";
+      const name = typeof doc.folderName === "string" ? doc.folderName.trim() : "";
+      if (!id) return;
+      if (!byId.has(id)) byId.set(id, { id, name: name || "Untitled folder" });
+    });
+
+    if (resolvedLinkedFolderId && !byId.has(resolvedLinkedFolderId)) {
+      byId.set(resolvedLinkedFolderId, { id: resolvedLinkedFolderId, name: resolvedLinkedFolderName });
+    }
+
+    return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [availableFolders, researchDocuments, resolvedLinkedFolderId, resolvedLinkedFolderName]);
 
   const persistResearchDocuments = useCallback((nextDocs) => {
     setResearchDocuments(nextDocs);
@@ -292,19 +360,51 @@ export default function DocumentsSection({
   }, []);
 
   useEffect(() => {
-    fetch(BASE_PATH + "manifest.json")
-      .then((r) => r.json())
-      .then(setDocuments)
-      .catch(() => setDocuments([]));
-  }, []);
+    const hasManifestDocs = (researchDocuments || []).some((doc) => doc?.source === "manifest");
+    if (!hasManifestDocs) return;
+
+    const keptDocuments = (researchDocuments || []).filter((doc) => doc?.source !== "manifest");
+    const keptIds = new Set(keptDocuments.map((doc) => String(doc?.id || "").trim()).filter(Boolean));
+
+    const nextComments = Object.entries(documentComments || {}).reduce((acc, [docId, comments]) => {
+      if (keptIds.has(String(docId || "").trim())) {
+        acc[docId] = comments;
+      }
+      return acc;
+    }, {});
+
+    persistResearchDocuments(keptDocuments);
+    persistDocumentComments(nextComments);
+  }, [researchDocuments, documentComments, persistResearchDocuments, persistDocumentComments]);
 
   useEffect(() => {
     const migrated = researchDocuments.map((doc) => {
-      if (Array.isArray(doc.opportunityIds)) return doc;
-      const legacyId = typeof doc.opportunityId === "string" && doc.opportunityId ? doc.opportunityId : "";
+      const opportunityIds = Array.isArray(doc.opportunityIds)
+        ? doc.opportunityIds
+        : (() => {
+            const legacyId = typeof doc.opportunityId === "string" && doc.opportunityId ? doc.opportunityId : "";
+            return legacyId ? [legacyId] : [];
+          })();
+
+      const folderId = typeof doc.folderId === "string" ? doc.folderId.trim() : "";
+      const folderName = typeof doc.folderName === "string" ? doc.folderName.trim() : "";
+      const normalizedFolderId = folderId || normalizeFolderId(folderName) || "";
+      const normalizedFolderName = folderName || "";
+
+      if (
+        Array.isArray(doc.opportunityIds)
+        && folderId
+        && folderName
+        && folderId === normalizedFolderId
+      ) {
+        return doc;
+      }
+
       return {
         ...doc,
-        opportunityIds: legacyId ? [legacyId] : [],
+        opportunityIds,
+        folderId: normalizedFolderId,
+        folderName: normalizedFolderName,
       };
     });
 
@@ -414,6 +514,10 @@ export default function DocumentsSection({
 
   const confirmUpload = useCallback(() => {
     if (!uploadDraft) return;
+    if (!resolvedLinkedFolderId) {
+      setUploadCommentError("Select or create a folder before adding documents.");
+      return;
+    }
     const trimmedName = (uploadDraft.name || "").trim();
     if (!trimmedName) return;
 
@@ -429,6 +533,8 @@ export default function DocumentsSection({
       name: trimmedName,
       tag: uploadDraft.tag || "Other",
       opportunityIds: Array.isArray(uploadDraft.opportunityIds) ? uploadDraft.opportunityIds : [],
+      folderId: resolvedLinkedFolderId,
+      folderName: resolvedLinkedFolderName,
       content: uploadDraft.content || "",
       uploadedAt: new Date().toISOString(),
     };
@@ -453,13 +559,23 @@ export default function DocumentsSection({
       isUploaded: true,
       content: newDocument.content,
       opportunityIds: newDocument.opportunityIds,
+      folderId: newDocument.folderId,
+      folderName: newDocument.folderName,
     };
     setSelectedDoc(listDoc);
     setDocContent(plainTextToHtml(newDocument.content));
     setViewerCommentDraft(createCommentDraft());
     setViewerCommentError("");
     setOpportunitySearch("");
-  }, [uploadDraft, researchDocuments, documentComments, persistResearchDocuments, persistDocumentComments]);
+  }, [
+    uploadDraft,
+    researchDocuments,
+    documentComments,
+    persistResearchDocuments,
+    persistDocumentComments,
+    resolvedLinkedFolderId,
+    resolvedLinkedFolderName,
+  ]);
 
   const addUploadCommentDraft = useCallback(() => {
     setUploadDraft((prev) => {
@@ -584,7 +700,7 @@ export default function DocumentsSection({
   }, [selectedDoc, documentComments, persistDocumentComments]);
 
   const allDocuments = useMemo(() => {
-    const uploaded = researchDocuments.map((doc) => ({
+    return researchDocuments.map((doc) => ({
       id: doc.id,
       label: doc.name,
       company: doc.name,
@@ -593,12 +709,22 @@ export default function DocumentsSection({
       isUploaded: true,
       content: doc.content,
       uploadedAt: doc.uploadedAt,
+      folderId: doc.folderId || DEFAULT_RESEARCH_FOLDER_ID,
+      folderName: doc.folderName || DEFAULT_RESEARCH_FOLDER_NAME,
       opportunityIds: Array.isArray(doc.opportunityIds)
         ? doc.opportunityIds
         : (doc.opportunityId ? [doc.opportunityId] : []),
     }));
-    return [...uploaded, ...documents];
-  }, [researchDocuments, documents]);
+  }, [researchDocuments]);
+
+  const linkedFolderDocuments = useMemo(
+    () => (
+      resolvedLinkedFolderId
+        ? allDocuments.filter((doc) => (doc.folderId || "") === resolvedLinkedFolderId)
+        : []
+    ),
+    [allDocuments, resolvedLinkedFolderId]
+  );
 
   useEffect(() => {
     if (!openDocumentId) return;
@@ -651,7 +777,7 @@ export default function DocumentsSection({
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
-  const filteredDocs = allDocuments.filter((d) => {
+  const filteredDocs = linkedFolderDocuments.filter((d) => {
     if (filterMarket !== "all" && d.market !== filterMarket) return false;
     const label = (d.label || "").toLowerCase();
     const company = (d.company || "").toLowerCase();
@@ -659,7 +785,15 @@ export default function DocumentsSection({
     return true;
   });
 
-  const markets = [...new Set(allDocuments.map((d) => d.market).filter(Boolean))];
+  const markets = [...new Set(linkedFolderDocuments.map((d) => d.market).filter(Boolean))];
+
+  useEffect(() => {
+    if (!selectedDoc?.id) return;
+    const stillVisible = linkedFolderDocuments.some((doc) => doc.id === selectedDoc.id);
+    if (stillVisible) return;
+    setSelectedDoc(null);
+    setDocContent("");
+  }, [linkedFolderDocuments, selectedDoc]);
 
   const hasSections = boundaries.section2Start !== null || boundaries.section3Start !== null;
   const jumpSections = useMemo(
@@ -697,6 +831,143 @@ export default function DocumentsSection({
     if (typeof onSectionConfigChange !== "function") return;
     onSectionConfigChange(DEFAULT_DOCUMENT_SECTIONS.map((section, order) => ({ ...section, order })));
   }, [onSectionConfigChange]);
+
+  const handleFolderSelection = useCallback((nextFolderId) => {
+    if (typeof onLinkFolderChange !== "function") return;
+    if (!nextFolderId) {
+      onLinkFolderChange({ id: "", name: "" });
+      return;
+    }
+    const selected = folderOptions.find((folder) => folder.id === nextFolderId)
+      || folderOptions[0]
+      || { id: "", name: "" };
+    onLinkFolderChange(selected);
+  }, [onLinkFolderChange, folderOptions]);
+
+  const handleCreateFolder = useCallback(() => {
+    if (typeof onLinkFolderChange !== "function") return;
+    const name = String(newFolderName || "").trim();
+    if (!name) return;
+    const id = normalizeFolderId(name) || `folder_${Date.now()}`;
+    onLinkFolderChange({ id, name });
+    setNewFolderName("");
+  }, [newFolderName, onLinkFolderChange]);
+
+  const executeDocumentDelete = useCallback((documentId) => {
+    const nextDocuments = (researchDocuments || []).filter((doc) => String(doc?.id || "") !== String(documentId || ""));
+    persistResearchDocuments(nextDocuments);
+
+    if (documentComments && Object.prototype.hasOwnProperty.call(documentComments, documentId)) {
+      const nextComments = { ...documentComments };
+      delete nextComments[documentId];
+      persistDocumentComments(nextComments);
+    }
+
+    if (selectedDoc?.id === documentId) {
+      setSelectedDoc(null);
+      setDocContent("");
+    }
+  }, [researchDocuments, persistResearchDocuments, documentComments, persistDocumentComments, selectedDoc]);
+
+  const handleDeleteDocument = useCallback((documentId) => {
+    const targetDoc = (researchDocuments || []).find((doc) => String(doc?.id || "") === String(documentId || ""));
+    if (!targetDoc) return;
+
+    const docName = String(targetDoc?.name || "Untitled document").trim() || "Untitled document";
+    const commentCount = Array.isArray(documentComments?.[documentId]) ? documentComments[documentId].length : 0;
+
+    setDeleteDialog({
+      type: "document",
+      title: "Delete document",
+      description: `Delete "${docName}"? This cannot be undone.`,
+      docName,
+      documentId,
+      documentCount: 1,
+      commentCount,
+      confirmLabel: "Delete document",
+    });
+  }, [researchDocuments, documentComments]);
+
+  const executeFolderDelete = useCallback((folderId, docsInFolder) => {
+    const folderDocIds = new Set(docsInFolder.map((doc) => String(doc?.id || "").trim()).filter(Boolean));
+
+    const nextDocuments = (researchDocuments || []).filter((doc) => {
+      const docFolderId = typeof doc?.folderId === "string" ? doc.folderId.trim() : "";
+      return (docFolderId || DEFAULT_RESEARCH_FOLDER_ID) !== folderId;
+    });
+    persistResearchDocuments(nextDocuments);
+
+    const nextComments = Object.entries(documentComments || {}).reduce((acc, [docId, comments]) => {
+      if (!folderDocIds.has(String(docId || "").trim())) {
+        acc[docId] = comments;
+      }
+      return acc;
+    }, {});
+    persistDocumentComments(nextComments);
+
+    if (selectedDoc?.id && folderDocIds.has(String(selectedDoc.id || "").trim())) {
+      setSelectedDoc(null);
+      setDocContent("");
+    }
+
+    if (typeof onDeleteResearchFolder === "function") {
+      onDeleteResearchFolder(folderId);
+    }
+
+    if (typeof onLinkFolderChange === "function") {
+      onLinkFolderChange({ id: "", name: "" });
+    }
+  }, [
+    researchDocuments,
+    persistResearchDocuments,
+    documentComments,
+    persistDocumentComments,
+    selectedDoc,
+    onDeleteResearchFolder,
+    onLinkFolderChange,
+  ]);
+
+  const handleDeleteLinkedFolder = useCallback(() => {
+    const folderId = String(resolvedLinkedFolderId || "").trim();
+    if (!folderId) return;
+
+    const docsInFolder = (researchDocuments || []).filter((doc) => {
+      const docFolderId = typeof doc?.folderId === "string" ? doc.folderId.trim() : "";
+      return (docFolderId || DEFAULT_RESEARCH_FOLDER_ID) === folderId;
+    });
+
+    const commentCount = docsInFolder.reduce((sum, doc) => {
+      const docId = String(doc?.id || "").trim();
+      const count = Array.isArray(documentComments?.[docId]) ? documentComments[docId].length : 0;
+      return sum + count;
+    }, 0);
+
+    setDeleteDialog({
+      type: "folder",
+      title: "Delete linked folder",
+      description: `Delete folder "${resolvedLinkedFolderName}"? This cannot be undone.`,
+      folderId,
+      folderName: resolvedLinkedFolderName,
+      docsInFolder,
+      documentCount: docsInFolder.length,
+      commentCount,
+      confirmLabel: "Delete folder",
+    });
+  }, [resolvedLinkedFolderId, resolvedLinkedFolderName, researchDocuments, documentComments]);
+
+  const confirmDeleteDialog = useCallback(() => {
+    if (!deleteDialog) return;
+
+    if (deleteDialog.type === "document") {
+      executeDocumentDelete(deleteDialog.documentId);
+    }
+
+    if (deleteDialog.type === "folder") {
+      executeFolderDelete(deleteDialog.folderId, Array.isArray(deleteDialog.docsInFolder) ? deleteDialog.docsInFolder : []);
+    }
+
+    setDeleteDialog(null);
+  }, [deleteDialog, executeDocumentDelete, executeFolderDelete]);
 
   // Build rendered content with section dividers
   const renderContent = () => {
@@ -900,6 +1171,43 @@ export default function DocumentsSection({
         </div>
       )}
 
+      {deleteDialog && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setDeleteDialog(null)}>
+          <div className="w-full max-w-md rounded-lg bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-rose-200 dark:border-rose-700">
+              <h3 className="text-sm font-semibold text-rose-700 dark:text-rose-300">{deleteDialog.title}</h3>
+            </div>
+            <div className="p-4 space-y-3">
+              <p className="text-xs text-slate-700 dark:text-slate-200">{deleteDialog.description}</p>
+              <div className="rounded-md border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/40 p-3 space-y-1">
+                <p className="text-xs text-slate-700 dark:text-slate-200">
+                  Documents to delete: <span className="font-semibold">{deleteDialog.documentCount}</span>
+                </p>
+                <p className="text-xs text-slate-700 dark:text-slate-200">
+                  Comments to delete: <span className="font-semibold">{deleteDialog.commentCount}</span>
+                </p>
+              </div>
+            </div>
+            <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteDialog(null)}
+                className="px-3 py-1.5 text-xs border border-slate-200 dark:border-slate-600 rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteDialog}
+                className="px-3 py-1.5 text-xs rounded-md bg-rose-600 text-white hover:bg-rose-700"
+              >
+                {deleteDialog.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <input
         ref={uploadInputRef}
         type="file"
@@ -912,14 +1220,61 @@ export default function DocumentsSection({
         <div>
           <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">Research Data</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Interview transcripts and research source material.</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Linked folder: <span className="font-semibold text-slate-700 dark:text-slate-200">{resolvedLinkedFolderName || UNLINKED_FOLDER_LABEL}</span>
+          </p>
         </div>
         <button
           onClick={() => uploadInputRef.current?.click()}
-          disabled={uploading}
+          disabled={uploading || !resolvedLinkedFolderId}
           className="px-3 py-1.5 text-xs font-medium border border-slate-200 dark:border-slate-600 rounded-md bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-60"
         >
           {uploading ? "Parsing..." : "Upload"}
         </button>
+      </div>
+
+      <div className="mb-4 p-3 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800">
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={resolvedLinkedFolderId}
+            onChange={(e) => handleFolderSelection(e.target.value)}
+            className="min-w-[14rem] px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-300"
+          >
+            <option value="">No folder linked</option>
+            {folderOptions.map((folder) => (
+              <option key={folder.id} value={folder.id}>{folder.name}</option>
+            ))}
+          </select>
+          <input
+            type="text"
+            value={newFolderName}
+            onChange={(e) => setNewFolderName(e.target.value)}
+            placeholder="Create new folder"
+            className="min-w-[12rem] px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-300"
+          />
+          <button
+            type="button"
+            onClick={handleCreateFolder}
+            disabled={!newFolderName.trim()}
+            className="px-2.5 py-1.5 text-xs font-medium border border-slate-300 dark:border-slate-600 rounded-md text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-60"
+          >
+            Create + link
+          </button>
+          <button
+            type="button"
+            onClick={handleDeleteLinkedFolder}
+            disabled={!resolvedLinkedFolderId}
+            className="px-2.5 py-1.5 text-xs font-medium border border-rose-300 dark:border-rose-700 rounded-md text-rose-700 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-900/20 disabled:opacity-60"
+          >
+            Delete linked folder
+          </button>
+        </div>
+        {!resolvedLinkedFolderId && (
+          <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">No folder is linked to this project. Select or create a folder to view and upload research documents.</p>
+        )}
+        {resolvedLinkedFolderId && linkedFolderDocuments.length === 0 && (
+          <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">No documents are linked to this project folder yet. Upload transcripts before running AI analysis.</p>
+        )}
       </div>
 
       <div className="flex gap-4 flex-1 min-h-0">
@@ -950,27 +1305,41 @@ export default function DocumentsSection({
               const docSections = sections[doc.id];
               const hasStored = docSections && (docSections.section2Start !== null || docSections.section3Start !== null);
               return (
-                <button
+                <div
                   key={doc.id}
-                  onClick={() => loadDocument(doc)}
-                  className={`w-full text-left px-3 py-2.5 text-xs border-b border-slate-100 dark:border-slate-700 last:border-b-0 transition-colors ${
+                  className={`w-full px-3 py-2.5 text-xs border-b border-slate-100 dark:border-slate-700 last:border-b-0 transition-colors group ${
                     selectedDoc?.id === doc.id
                       ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium"
                       : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50"
                   }`}
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="inline-flex items-center justify-center px-1.5 py-0.5 min-w-[2.25rem] rounded bg-slate-100 dark:bg-slate-700 text-[10px] font-semibold text-slate-500 dark:text-slate-300 shrink-0">
-                      {doc.market || "N/A"}
-                    </span>
-                    <span className="truncate block">{doc.company || doc.label}</span>
-                    {(documentComments[doc.id] || []).length > 0 && (
-                      <span className="ml-auto inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 text-[10px] font-medium shrink-0">
-                        {(documentComments[doc.id] || []).length}
-                      </span>
-                    )}
+                    <button
+                      onClick={() => loadDocument(doc)}
+                      className="flex-1 min-w-0 text-left"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="inline-flex items-center justify-center px-1.5 py-0.5 min-w-[2.25rem] rounded bg-slate-100 dark:bg-slate-700 text-[10px] font-semibold text-slate-500 dark:text-slate-300 shrink-0">
+                          {doc.market || "N/A"}
+                        </span>
+                        <span className="truncate block">{doc.company || doc.label}</span>
+                        {(documentComments[doc.id] || []).length > 0 && (
+                          <span className="ml-auto inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 text-[10px] font-medium shrink-0">
+                            {(documentComments[doc.id] || []).length}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteDocument(doc.id)}
+                      className="shrink-0 px-1.5 py-0.5 text-[10px] border border-rose-200 dark:border-rose-700 rounded text-rose-600 dark:text-rose-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Delete document"
+                    >
+                      Delete
+                    </button>
                   </div>
-                </button>
+                </div>
               );
             })}
             {filteredDocs.length === 0 && (
@@ -978,7 +1347,7 @@ export default function DocumentsSection({
             )}
           </div>
 
-          <p className="text-[10px] text-slate-400 dark:text-slate-500">{allDocuments.length} documents</p>
+          <p className="text-[10px] text-slate-400 dark:text-slate-500">{linkedFolderDocuments.length} documents in this folder</p>
         </div>
 
         {/* Document reader */}

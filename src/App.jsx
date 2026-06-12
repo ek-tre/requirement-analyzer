@@ -22,6 +22,7 @@
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import mammoth from "mammoth";
 import OSTCanvas from "./OSTCanvas.jsx";
 import DocumentsSection from "./DocumentsSection.jsx";
 import FeedbackSection from "./FeedbackSection.jsx";
@@ -34,26 +35,218 @@ const ENCRYPTION_KEY_NAME = "req_analyzer_key_v1";
 const ENCRYPTION_SALT = "requirement-analyzer-secure-2026"; // In production, use unique per-installation salt
 const RESEARCH_DOCUMENTS_KEY = "researchDocuments";
 const ENCRYPTED_PAYLOAD_PREFIX = "enc:v1:";
+const DEFAULT_RESEARCH_FOLDER_NAME = "";
+
+const normalizeFolderId = (rawValue) => {
+  const source = String(rawValue || "").trim().toLowerCase();
+  const slug = source.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return slug ? `folder_${slug}` : "";
+};
+
+const normalizeResearchDocument = (doc) => {
+  if (!doc || typeof doc !== "object") return doc;
+
+  const opportunityIds = Array.isArray(doc.opportunityIds)
+    ? doc.opportunityIds
+    : (() => {
+        const legacyId = typeof doc.opportunityId === "string" && doc.opportunityId ? doc.opportunityId : "";
+        return legacyId ? [legacyId] : [];
+      })();
+
+  const existingFolderId = typeof doc.folderId === "string" ? doc.folderId.trim() : "";
+  const existingFolderName = typeof doc.folderName === "string" ? doc.folderName.trim() : "";
+  const normalizedFolderId = existingFolderId || normalizeFolderId(existingFolderName) || "";
+  const normalizedFolderName = existingFolderName || "";
+
+  return {
+    ...doc,
+    opportunityIds,
+    folderId: normalizedFolderId,
+    folderName: normalizedFolderName,
+  };
+};
+
+const normalizeResearchDocumentsCollection = (docs) => {
+  const safeDocs = Array.isArray(docs) ? docs : [];
+  const normalized = safeDocs.map((doc) => normalizeResearchDocument(doc)).filter(Boolean);
+  const deduped = [];
+  const seen = new Set();
+
+  normalized.forEach((doc, index) => {
+    const idPart = String(doc?.id || "").trim();
+    const namePart = String(doc?.name || "").trim().toLowerCase();
+    const folderPart = String(doc?.folderId || "").trim().toLowerCase();
+    const key = idPart || `${namePart}::${folderPart}::${index}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    deduped.push(doc);
+  });
+
+  return deduped;
+};
 
 const loadResearchDocuments = () => {
   try {
     const parsed = JSON.parse(localStorage.getItem(RESEARCH_DOCUMENTS_KEY) || "[]");
-    if (!Array.isArray(parsed)) return [];
-
-    // Keep compatibility with legacy shape using opportunityId.
-    return parsed.map((doc) => {
-      if (!doc || typeof doc !== "object") return doc;
-      if (Array.isArray(doc.opportunityIds)) return doc;
-
-      const legacyId = typeof doc.opportunityId === "string" && doc.opportunityId ? doc.opportunityId : "";
-      return {
-        ...doc,
-        opportunityIds: legacyId ? [legacyId] : [],
-      };
-    });
+    return normalizeResearchDocumentsCollection(parsed);
   } catch {
     return [];
   }
+};
+
+const chunkTextIntoSegments = (text, wordsPerChunk = 120) => {
+  const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p.length > 40);
+  if (paragraphs.length >= 3) return paragraphs;
+  const words = text.split(/\s+/).filter(Boolean);
+  const chunks = [];
+  for (let i = 0; i < words.length; i += wordsPerChunk) {
+    chunks.push(words.slice(i, i + wordsPerChunk).join(" "));
+  }
+  return chunks;
+};
+
+const scoreChunkAgainstOutcome = (chunkText, outcomeTokenSet) => {
+  if (!outcomeTokenSet?.size) return 0;
+  const tokens = tokenizeForRelevance(chunkText);
+  if (!tokens.length) return 0;
+  let overlap = 0;
+  tokens.forEach((token) => { if (outcomeTokenSet.has(token)) overlap += 1; });
+  return overlap / Math.sqrt(tokens.length);
+};
+
+const cosineSimilarity = (a, b) => {
+  if (!a?.length || !b?.length || a.length !== b.length) return 0;
+  let dot = 0, magA = 0, magB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    magA += a[i] * a[i];
+    magB += b[i] * b[i];
+  }
+  const denom = Math.sqrt(magA) * Math.sqrt(magB);
+  return denom > 0 ? dot / denom : 0;
+};
+
+const fetchEmbeddings = async (texts, githubAIKey) => {
+  if (!githubAIKey || !texts?.length) return null;
+  try {
+    const response = await fetch("https://models.inference.ai.azure.com/embeddings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${githubAIKey}`,
+      },
+      body: JSON.stringify({ model: "text-embedding-3-small", input: texts }),
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (!Array.isArray(data?.data)) return null;
+    const sorted = [...data.data].sort((a, b) => a.index - b.index);
+    return sorted.map((item) => item.embedding);
+  } catch {
+    return null;
+  }
+};
+
+const buildResearchEvidenceContext = async (documents, maxChars = 6000, outcomeText = "", githubAIKey = null) => {
+  const docs = Array.isArray(documents) ? documents : [];
+
+  const allChunks = [];
+  docs.forEach((doc, docIndex) => {
+    const content = String(doc?.content || doc?.text || doc?.notes || "").trim();
+    if (!content) return;
+    const name = String(doc?.name || `Document ${docIndex + 1}`).trim();
+    chunkTextIntoSegments(content).forEach((segment) => {
+      const text = segment.trim();
+      if (text) allChunks.push({ name, text, score: 0 });
+    });
+  });
+
+  if (!outcomeText || !allChunks.length) {
+    return docs
+      .map((doc, index) => {
+        const content = String(doc?.content || doc?.text || doc?.notes || "").trim();
+        if (!content) return "";
+        const name = String(doc?.name || `Document ${index + 1}`).trim();
+        return `${name}\n${content}`;
+      })
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(0, maxChars);
+  }
+
+  // Attempt semantic scoring via embeddings, fall back to keyword scoring
+  let usedEmbeddings = false;
+  if (githubAIKey) {
+    const texts = [outcomeText, ...allChunks.map((c) => c.text)];
+    const embeddings = await fetchEmbeddings(texts, githubAIKey);
+    if (embeddings && embeddings.length === texts.length) {
+      const outcomeVec = embeddings[0];
+      allChunks.forEach((chunk, i) => {
+        chunk.score = cosineSimilarity(outcomeVec, embeddings[i + 1]);
+      });
+      usedEmbeddings = true;
+      console.log("[RAG] Chunk scoring via text-embedding-3-small");
+    }
+  }
+
+  if (!usedEmbeddings) {
+    const outcomeTokenSet = toTokenSet(outcomeText);
+    allChunks.forEach((chunk) => {
+      chunk.score = scoreChunkAgainstOutcome(chunk.text, outcomeTokenSet);
+    });
+    console.log("[RAG] Chunk scoring via keyword overlap (fallback)");
+  }
+
+  allChunks.sort((a, b) => b.score - a.score);
+
+  let result = "";
+  let prevName = null;
+  for (const chunk of allChunks) {
+    const header = chunk.name !== prevName ? `${chunk.name}\n` : "";
+    const segment = `${header}${chunk.text}\n\n`;
+    if (result.length + segment.length > maxChars) break;
+    result += segment;
+    prevName = chunk.name;
+  }
+
+  return result.trim();
+};
+
+const buildGroundedDiscoveryPrompt = ({ outcomeName, researchContent, existingOpportunitiesText = "", mode = "generate" }) => {
+  const normalizedOutcomeName = String(outcomeName || "Desired Outcome").trim() || "Desired Outcome";
+  const existingBlock = existingOpportunitiesText
+    ? `\nExisting opportunities (do not generate these or close variants):\n${existingOpportunitiesText}\n`
+    : "";
+  const taskDescription = mode === "enrich"
+    ? "Refine the existing opportunities using the evidence below."
+    : "Generate 5-8 distinct opportunities that answer the fixed outcome question.";
+
+  return `You are a product discovery expert applying the Opportunity Solution Tree method.
+
+TARGET QUESTION / OUTCOME (keep this exact question fixed):
+${normalizedOutcomeName}
+
+How to think:
+- Treat the outcome above as the fixed question you must answer.
+- Do not rewrite, broaden, or replace the question.
+- The answer may not appear verbatim in the research.
+- Use semantic reasoning over the research to infer the underlying user need, friction, or unmet job-to-be-done.
+- Combine repeated signals, contradictions, and missing information across documents.
+- Do not drift into adjacent opportunities or generic advice.
+
+Research evidence:
+${researchContent || "No research content available."}${existingBlock}
+
+Task:
+${taskDescription}
+
+Rules:
+- Opportunities must be specific user needs or friction points, not solutions.
+- Do NOT restate or paraphrase the outcome/question as an opportunity.
+- Ground every opportunity in the research evidence, even if inferred.
+- If the evidence is insufficient or unclear, return []
+- Return ONLY a JSON array, no other text:
+[{"name": "...", "about": "...", "impact": "High|Medium|Low", "businessObjective": "..."}]`;
 };
 
 const inferReferenceMarket = (reference) => {
@@ -64,6 +257,236 @@ const inferReferenceMarket = (reference) => {
   if (/^DK\b/i.test(name)) return "DK";
   if (/^SE\b/i.test(name)) return "SE";
   return "";
+};
+
+const STOPWORD_TOKENS = new Set([
+  "the", "and", "for", "with", "from", "that", "this", "into", "about", "your", "their", "have", "has", "will", "can", "should", "would", "could", "but", "not", "are", "was", "were", "been", "being", "than", "then", "when", "where", "what", "which", "while", "also", "only", "more", "less", "very", "just", "some", "many", "much", "onto", "over", "under", "across", "between", "through", "after", "before", "during", "without", "within", "into", "out", "our", "its", "them", "they", "their", "who", "whom", "why", "how", "you", "we", "i", "a", "an", "to", "of", "in", "on", "at", "by", "or", "as", "is", "it",
+]);
+
+const OUTCOME_ACTION_VERB_PATTERNS = [
+  /\b(reduce|reduces|reduced|reducing|reduction)\b/i,
+  /\b(increase|increases|increased|increasing)\b/i,
+  /\b(decrease|decreases|decreased|decreasing)\b/i,
+  /\b(improve|improves|improved|improving|improvement)\b/i,
+  /\b(lower|lowers|lowered|lowering)\b/i,
+  /\b(shorten|shortens|shortened|shortening)\b/i,
+  /\b(speed|speeds|speedup|speed-up|faster)\b/i,
+  /\b(accelerate|accelerates|accelerated|accelerating)\b/i,
+  /\b(raise|raises|raised|raising)\b/i,
+  /\b(grow|grows|grew|grown|growing)\b/i,
+  /\b(boost|boosts|boosted|boosting)\b/i,
+  /\b(minimize|minimizes|minimized|minimizing)\b/i,
+  /\b(maximize|maximizes|maximized|maximizing)\b/i,
+  /\b(simplify|simplifies|simplified|simplifying)\b/i,
+  /\b(clarify|clarifies|clarified|clarifying)\b/i,
+  /\b(streamline|streamlines|streamlined|streamlining)\b/i,
+  /\b(remove|removes|removed|removing)\b/i,
+  /\b(prevent|prevents|prevented|preventing)\b/i,
+];
+
+const OUTCOME_CONTEXT_WORDS = [
+  "admin", "user", "customer", "agent", "operator", "workflow", "task", "onboarding", "support", "retention", "conversion", "error", "time", "completion", "portal", "experience", "usage", "business", "ops", "operations",
+];
+
+const GENERIC_OPPORTUNITY_PATTERNS = [
+  /^improve (the )?user experience$/i,
+  /^enhance (the )?user experience$/i,
+  /^optimi[sz]e (the )?process$/i,
+  /^increase (the )?efficiency$/i,
+  /^better (the )?experience$/i,
+  /^make (it )?easier$/i,
+];
+
+const OUTCOME_GENERIC_TOKENS = new Set([
+  "reduce",
+  "reduces",
+  "reduced",
+  "reducing",
+  "reduction",
+  "increase",
+  "increases",
+  "increased",
+  "increasing",
+  "decrease",
+  "decreases",
+  "decreased",
+  "decreasing",
+  "improve",
+  "improves",
+  "improved",
+  "improving",
+  "lower",
+  "lowers",
+  "lowered",
+  "lowering",
+  "shorten",
+  "shortens",
+  "shortened",
+  "shortening",
+  "speed",
+  "speeds",
+  "speedup",
+  "speed-up",
+  "faster",
+  "accelerate",
+  "accelerates",
+  "accelerated",
+  "accelerating",
+  "raise",
+  "raises",
+  "raised",
+  "raising",
+  "grow",
+  "grows",
+  "grew",
+  "grown",
+  "growing",
+  "boost",
+  "boosts",
+  "boosted",
+  "boosting",
+  "minimize",
+  "minimizes",
+  "minimized",
+  "minimizing",
+  "maximize",
+  "maximizes",
+  "maximized",
+  "maximizing",
+  "simplify",
+  "simplifies",
+  "simplified",
+  "simplifying",
+  "clarify",
+  "clarifies",
+  "clarified",
+  "clarifying",
+  "streamline",
+  "streamlines",
+  "streamlined",
+  "streamlining",
+  "remove",
+  "removes",
+  "removed",
+  "removing",
+  "prevent",
+  "prevents",
+  "prevented",
+  "preventing",
+  "number",
+  "numbers",
+  "more",
+  "less",
+  "many",
+  "much",
+  "better",
+  "best",
+  "new",
+  "old",
+  "issue",
+  "issues",
+  "problem",
+  "problems",
+  "thing",
+  "things",
+]);
+
+const MIN_EVIDENCE_TOKEN_OVERLAP = 1;
+const MIN_OUTCOME_RESEARCH_TOKEN_OVERLAP = 1;
+
+const normalizeTextForTokens = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const tokenizeForRelevance = (value) =>
+  normalizeTextForTokens(value)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length > 2 && !STOPWORD_TOKENS.has(token));
+
+const toTokenSet = (value) => new Set(tokenizeForRelevance(value));
+
+const calculateJaccardSimilarity = (aSet, bSet) => {
+  if (!aSet?.size || !bSet?.size) return 0;
+  let intersection = 0;
+  aSet.forEach((token) => {
+    if (bSet.has(token)) intersection += 1;
+  });
+  const union = aSet.size + bSet.size - intersection;
+  return union > 0 ? intersection / union : 0;
+};
+
+const hasOutcomeActionVerb = (normalizedOutcomeText) => {
+  const value = String(normalizedOutcomeText || "").trim();
+  if (!value) return false;
+  return OUTCOME_ACTION_VERB_PATTERNS.some((pattern) => pattern.test(value));
+};
+
+const validateOutcomeQuality = (rawOutcome) => {
+  const outcome = String(rawOutcome || "").trim();
+  const normalized = normalizeTextForTokens(outcome);
+  const words = normalized ? normalized.split(" ").filter(Boolean) : [];
+  const reasons = [];
+
+  if (!outcome) reasons.push("Outcome is empty.");
+  if (outcome.length > 0 && outcome.length < 18) reasons.push("Outcome is too short.");
+  if (words.length > 0 && words.length < 4) reasons.push("Outcome needs more specificity.");
+
+  const hasAction = hasOutcomeActionVerb(normalized);
+  if (normalized && !hasAction) reasons.push("Outcome should include a measurable action verb.");
+
+  const hasContext = normalized.includes(" for ") || OUTCOME_CONTEXT_WORDS.some((word) => normalized.includes(word));
+  if (normalized && !hasContext) reasons.push("Outcome should reference a user or business context.");
+
+  if (/(dancing\s+bear|unicorn|dragon|pirate|zombie|rainbow)/i.test(outcome)) {
+    reasons.push("Outcome appears unrelated to product discovery context.");
+  }
+
+  return {
+    isValid: reasons.length === 0,
+    score: Math.max(0, 100 - reasons.length * 20),
+    reasons,
+  };
+};
+
+const hasEvidenceOverlap = (value, researchTokenSet, minOverlap = 2) => {
+  if (!researchTokenSet?.size) return false;
+  const candidateTokens = tokenizeForRelevance(value);
+  if (candidateTokens.length === 0) return false;
+  let overlap = 0;
+  candidateTokens.forEach((token) => {
+    if (researchTokenSet.has(token)) overlap += 1;
+  });
+  return overlap >= minOverlap;
+};
+
+const getMeaningfulOutcomeTokens = (value) =>
+  tokenizeForRelevance(value).filter(
+    (token) => !OUTCOME_CONTEXT_WORDS.includes(token) && !OUTCOME_GENERIC_TOKENS.has(token)
+  );
+
+const hasOutcomeResearchAlignmentWithResearch = (outcomeText, researchTokenSet) => {
+  if (!researchTokenSet?.size) return false;
+  const meaningfulOutcomeTokens = getMeaningfulOutcomeTokens(outcomeText);
+  if (meaningfulOutcomeTokens.length === 0) return false;
+  return hasEvidenceOverlap(meaningfulOutcomeTokens.join(" "), researchTokenSet, MIN_OUTCOME_RESEARCH_TOKEN_OVERLAP);
+};
+
+const isOpportunityTooGeneric = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return true;
+  if (GENERIC_OPPORTUNITY_PATTERNS.some((pattern) => pattern.test(text))) return true;
+  return tokenizeForRelevance(text).length < 3;
+};
+
+const isOutcomeRestatement = (opportunityText, outcomeText) => {
+  const outcomeTokens = toTokenSet(outcomeText);
+  const opportunityTokens = toTokenSet(opportunityText);
+  const similarity = calculateJaccardSimilarity(opportunityTokens, outcomeTokens);
+  return similarity >= 0.65;
 };
 
 const getEvidenceReferencesForColumn = (columnId, rowReferences = []) => {
@@ -835,7 +1258,11 @@ const createBlankAnalysis = (name = "Untitled Design Task", projectMode = "desig
   questions: [],
   acceptanceCriteria: [],
   actions: [],
-  research: { rounds: [] },
+  research: {
+    rounds: [],
+    linkedFolderId: "",
+    linkedFolderName: "",
+  },
   mapping: { figmaUrl: "" },
   designRefs: { references: [], notes: "" },
   codeRefs: { repos: [] },
@@ -918,7 +1345,13 @@ const createGeneratedDiscoveryTable = (outcomeName) => ({
 });
 
 const createOutcome = (name, options = {}) => {
-  const shouldGenerate = options?.generateOpportunities === true;
+  const outcomeQuality = validateOutcomeQuality(name);
+  // Template opportunities are disabled by default to avoid generic/sloppy rows.
+  // They can only be enabled explicitly with allowTemplateGeneration.
+  const shouldGenerate =
+    options?.generateOpportunities === true &&
+    options?.allowTemplateGeneration === true &&
+    outcomeQuality.isValid;
   const generatedTable = shouldGenerate ? createGeneratedDiscoveryTable(name) : null;
   const generatedRows = Array.isArray(generatedTable?.rows) ? generatedTable.rows : [];
   const topPriorityRowIds = getTopPriorityRowIds(generatedRows, 3);
@@ -942,6 +1375,172 @@ const createOutcome = (name, options = {}) => {
       opportunities: generatedOpportunities,
     },
   };
+};
+
+const extractOpportunityArrayFromResponse = (responseValue) => {
+  if (Array.isArray(responseValue)) return responseValue;
+
+  if (typeof responseValue === "string") {
+    const parsed = tryParseJsonContent(responseValue);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === "object") {
+      return extractOpportunityArrayFromResponse(parsed);
+    }
+    return [];
+  }
+
+  if (!responseValue || typeof responseValue !== "object") {
+    return [];
+  }
+
+  const prioritizedKeys = ["opportunities", "items", "results", "data", "output"];
+  for (const key of prioritizedKeys) {
+    const extracted = extractOpportunityArrayFromResponse(responseValue[key]);
+    if (extracted.length > 0) return extracted;
+  }
+
+  const firstArrayValue = Object.values(responseValue).find((value) => Array.isArray(value));
+  if (Array.isArray(firstArrayValue)) return firstArrayValue;
+
+  if (typeof responseValue.notes === "string") {
+    return extractOpportunityArrayFromResponse(responseValue.notes);
+  }
+
+  return [];
+};
+
+const normalizeAIOpportunityItem = (item, index) => {
+  const pickFirstNonEmptyString = (candidateValues = []) => {
+    for (const value of candidateValues) {
+      const normalized = String(value || "").trim();
+      if (normalized) return normalized;
+    }
+    return "";
+  };
+
+  if (typeof item === "string") {
+    return {
+      name: item.trim(),
+      about: "",
+      businessObjective: "",
+      impact: "",
+      fallbackName: `Opportunity ${index + 1}`,
+    };
+  }
+
+  const name = pickFirstNonEmptyString([
+    item?.name,
+    item?.opportunity,
+    item?.opportunityName,
+    item?.title,
+    item?.need,
+    item?.painPoint,
+    item?.problem,
+  ]);
+  const about = pickFirstNonEmptyString([
+    item?.about,
+    item?.description,
+    item?.details,
+    item?.context,
+    item?.summary,
+    item?.why,
+  ]);
+  const businessObjective = pickFirstNonEmptyString([
+    item?.businessObjective,
+    item?.objective,
+    item?.goal,
+    item?.outcome,
+  ]);
+  const impactRaw = pickFirstNonEmptyString([
+    item?.impact,
+    item?.priority,
+    item?.importance,
+  ]);
+  const normalizedImpact = ["High", "Medium", "Low"].includes(impactRaw)
+    ? impactRaw
+    : ["high", "medium", "low"].includes(impactRaw.toLowerCase())
+      ? `${impactRaw.charAt(0).toUpperCase()}${impactRaw.slice(1).toLowerCase()}`
+      : "";
+
+  const fallbackName = name
+    ? ""
+    : pickFirstNonEmptyString([about, businessObjective, item?.insight]) || `Opportunity ${index + 1}`;
+
+  return {
+    name,
+    about,
+    businessObjective,
+    impact: normalizedImpact,
+    fallbackName,
+  };
+};
+
+const buildDiscoveryRowsFromResearch = async ({ outcomeName, researchDocuments, githubAIKey }) => {
+  const normalizedOutcomeName = String(outcomeName || "Desired Outcome").trim() || "Desired Outcome";
+  const groundedResearchDocuments = (Array.isArray(researchDocuments) ? researchDocuments : []).filter((doc) =>
+    String(doc?.content || doc?.text || doc?.notes || "").trim().length > 0
+  );
+
+  const researchTokenSet = toTokenSet(
+    groundedResearchDocuments
+      .map((doc) => String(doc?.content || doc?.text || doc?.notes || ""))
+      .join("\n")
+  );
+
+  if (!hasOutcomeResearchAlignmentWithResearch(normalizedOutcomeName, researchTokenSet)) {
+    return [];
+  }
+
+  const researchContent = await buildResearchEvidenceContext(groundedResearchDocuments, 6000, normalizedOutcomeName, githubAIKey);
+
+  const aiPrompt = buildGroundedDiscoveryPrompt({
+    outcomeName: normalizedOutcomeName,
+    researchContent,
+    mode: "generate",
+  });
+
+  const aiResponse = await analyzeWithGitHub(aiPrompt, githubAIKey, {
+    opportunities: [],
+    outcome: normalizedOutcomeName,
+    systemPrompt: `${buildAnalysisSystemPrompt([], normalizedOutcomeName)}\n\nOUTPUT FORMAT RULES:\n- You generate opportunity-only outputs for Opportunity Solution Tree analysis\n- Do NOT include solutions, experiments, or recommendations\n- Return ONLY this JSON array shape and nothing else:\n-[{"name": "...", "about": "...", "impact": "High|Medium|Low", "businessObjective": "..."}]`,
+    temperature: 0.4,
+    maxTokens: 1200,
+  });
+
+  const parsedItems = extractOpportunityArrayFromResponse(aiResponse);
+  const aiOpportunities = parsedItems
+    .filter((item) => item && (typeof item === "object" || typeof item === "string"))
+    .map((item, index) => normalizeAIOpportunityItem(item, index));
+
+  const rows = aiOpportunities
+    .map((opp, index) => ({
+      id: generateId(),
+      cells: {
+        col_opp: String(opp.name || opp.fallbackName || `Opportunity ${index + 1}`).trim(),
+        col_about: String(opp.about || "").trim(),
+        col_impact: String(opp.impact || "").trim(),
+        col_obj: String(opp.businessObjective || "").trim(),
+        col_rprio: String(index + 1),
+        col_iprio: "",
+        col_diagram: "",
+        col_dk: "",
+        col_se: "",
+        col_proto: "",
+        col_b2b: "",
+        col_sol_team: "",
+        col_exp_team: "",
+      },
+    }))
+    .filter((row) => {
+      const oppText = String(row.cells?.col_opp || "").trim();
+      const aboutText = String(row.cells?.col_about || "").trim();
+      if (!oppText) return false;
+      if (isOpportunityTooGeneric(oppText)) return false;
+      if (isOutcomeRestatement(oppText, normalizedOutcomeName)) return false;
+      return hasEvidenceOverlap(`${oppText}\n${aboutText}`, researchTokenSet, MIN_EVIDENCE_TOKEN_OVERLAP);
+    });
+
+  return rows;
 };
 
 const loadStoredOpportunityTree = () => {
@@ -1206,6 +1805,16 @@ const migrateAnalysis = (analysis) => {
   // Clean up legacy top-level fields (keep for backward compat but outcomes is source of truth)
   delete migrated.discoveryTable;
   delete migrated.opportunityTree;
+
+  const existingResearch = migrated.research && typeof migrated.research === "object" ? migrated.research : { rounds: [] };
+  const linkedFolderId = typeof existingResearch.linkedFolderId === "string" ? existingResearch.linkedFolderId.trim() : "";
+  const linkedFolderName = typeof existingResearch.linkedFolderName === "string" ? existingResearch.linkedFolderName.trim() : "";
+  migrated.research = {
+    ...existingResearch,
+    rounds: Array.isArray(existingResearch.rounds) ? existingResearch.rounds : [],
+    linkedFolderId,
+    linkedFolderName: linkedFolderName || "",
+  };
 
   return migrated;
 };
@@ -5979,6 +6588,8 @@ const DiscoveryTableSection = ({
   linkedDocumentsByRowId = {},
   onOpenEvidenceReference,
   researchDocuments = [],
+  researchFolderName = DEFAULT_RESEARCH_FOLDER_NAME,
+  researchIndexing = { isIndexing: false, indexedCount: 0, expectedCount: 0, status: "ready" },
   githubAIKey = "",
 }) => {
   const [draggedRowIndex, setDraggedRowIndex] = useState(null);
@@ -5986,12 +6597,77 @@ const DiscoveryTableSection = ({
   const [columnWidths, setColumnWidths] = useState({});
   const [isReAnalysing, setIsReAnalysing] = useState(false);
   const [reAnalyseError, setReAnalyseError] = useState("");
+  const [reAnalyseNotice, setReAnalyseNotice] = useState("");
   const [isEnriching, setIsEnriching] = useState(false);
   const [enrichError, setEnrichError] = useState("");
+  const [pendingAiRows, setPendingAiRows] = useState([]);
   const [iprioSort, setIprioSort] = useState(null); // null | 'asc' | 'desc'
   const [rprioSort, setRprioSort] = useState(null); // null | 'asc' | 'desc'
   const resizingRef = useRef(null);
   const tableRef = useRef(null);
+
+  const groundedResearchDocuments = useMemo(() => {
+    return (Array.isArray(researchDocuments) ? researchDocuments : []).filter((doc) => {
+      const content = String(doc?.content || doc?.text || doc?.notes || "").trim();
+      return content.length > 0;
+    });
+  }, [researchDocuments]);
+
+  const linkedResearchDocumentsCount = Array.isArray(researchDocuments) ? researchDocuments.length : 0;
+  const hasLinkedResearchDocuments = linkedResearchDocumentsCount > 0;
+  const hasGroundedResearch = groundedResearchDocuments.length > 0;
+  const totalGroundedChars = useMemo(
+    () => groundedResearchDocuments.reduce((sum, doc) => sum + String(doc?.content || doc?.text || doc?.notes || "").trim().length, 0),
+    [groundedResearchDocuments]
+  );
+  const hasSufficientEvidence = groundedResearchDocuments.length >= 2 && totalGroundedChars >= 500;
+  const isResearchIndexing = Boolean(researchIndexing?.isIndexing);
+  const indexedResearchDocs = Number(researchIndexing?.indexedCount || 0);
+  const expectedResearchDocs = Number(researchIndexing?.expectedCount || 0);
+  const outcomeQuality = useMemo(() => validateOutcomeQuality(outcomeName), [outcomeName]);
+  const aiReadinessBlocker = useMemo(() => {
+    if (isResearchIndexing) {
+      if (expectedResearchDocs > 0) {
+        return `Research indexing in progress for folder "${researchFolderName}" (${indexedResearchDocs}/${expectedResearchDocs}).`;
+      }
+      return `Research indexing in progress for folder "${researchFolderName}".`;
+    }
+    if (!researchFolderName) return "No research folder linked. Connect a folder before running AI analysis.";
+    if (!githubAIKey) return "Add your GitHub AI token in Options to enable AI analysis.";
+    if (!outcomeQuality.isValid) return outcomeQuality.reasons?.[0] || "Refine the outcome before running AI.";
+    if (!hasLinkedResearchDocuments) return `No linked research docs found in folder "${researchFolderName}".`;
+    if (!hasGroundedResearch) return `Linked docs in folder "${researchFolderName}" do not contain transcript text yet.`;
+    if (!hasSufficientEvidence) return `Evidence is too thin in folder "${researchFolderName}" (need at least 2 docs and ~500 chars).`;
+    if (!outcomeResearchAlignment) return `This outcome is out of context for the linked research. Add matching evidence or refine the outcome.`;
+    return "";
+  }, [
+    expectedResearchDocs,
+    githubAIKey,
+    hasGroundedResearch,
+    hasLinkedResearchDocuments,
+    hasSufficientEvidence,
+    indexedResearchDocs,
+    isResearchIndexing,
+    outcomeQuality,
+    researchFolderName,
+    outcomeResearchAlignment,
+  ]);
+  const isAiActionBusy = isReAnalysing || isEnriching;
+  const aiActionBusyReason = "Another AI analysis is already running.";
+  const aiButtonTitle = isAiActionBusy ? aiActionBusyReason : aiReadinessBlocker;
+  const disableFindMoreButton = isAiActionBusy || Boolean(aiReadinessBlocker);
+  const disableEnrichButton = isAiActionBusy || Boolean(aiReadinessBlocker);
+  const researchTokenSet = useMemo(() => {
+    const combined = groundedResearchDocuments
+      .map((doc) => String(doc?.content || doc?.text || doc?.notes || ""))
+      .join("\n");
+    return toTokenSet(combined);
+  }, [groundedResearchDocuments]);
+
+  const outcomeResearchAlignment = useMemo(
+    () => hasOutcomeResearchAlignmentWithResearch(outcomeName, researchTokenSet),
+    [outcomeName, researchTokenSet]
+  );
 
   const IPRIO_RANK = { now: 0, next: 1, later: 2 };
   const getIprioRank = (val) => {
@@ -6004,6 +6680,12 @@ const DiscoveryTableSection = ({
     const timeout = setTimeout(() => setReAnalyseError(""), 5000);
     return () => clearTimeout(timeout);
   }, [reAnalyseError]);
+
+  useEffect(() => {
+    if (!reAnalyseNotice) return;
+    const timeout = setTimeout(() => setReAnalyseNotice(""), 6000);
+    return () => clearTimeout(timeout);
+  }, [reAnalyseNotice]);
 
   const handleResizeStart = (e, colId) => {
     e.preventDefault();
@@ -6033,48 +6715,48 @@ const DiscoveryTableSection = ({
 
   const handleReAnalyse = async () => {
     setReAnalyseError("");
+    setReAnalyseNotice("");
+
+    if (isResearchIndexing) {
+      setReAnalyseError(
+        expectedResearchDocs > 0
+          ? `Research indexing in progress for folder "${researchFolderName}" (${indexedResearchDocs}/${expectedResearchDocs}). Please wait before running AI analysis.`
+          : `Research indexing in progress for folder "${researchFolderName}". Please wait before running AI analysis.`
+      );
+      return;
+    }
 
     if (!githubAIKey) {
       setReAnalyseError("Could not fetch AI opportunities. Please add your GitHub AI token in Options.");
       return;
     }
 
+    if (!outcomeQuality.isValid) {
+      setReAnalyseError(`Outcome quality is too low for AI generation: ${outcomeQuality.reasons[0] || "Refine the outcome."}`);
+      return;
+    }
+
+    if (!hasLinkedResearchDocuments) {
+      setReAnalyseError(`No linked research documents found in folder \"${researchFolderName}\". Upload transcripts before using AI.`);
+      return;
+    }
+
+    if (!hasGroundedResearch) {
+      setReAnalyseError(`Linked research documents in folder \"${researchFolderName}\" do not contain transcript text yet. Open the documents and add or import transcript content.`);
+      return;
+    }
+
+    if (!hasSufficientEvidence) {
+      setReAnalyseError(`Evidence is too thin in folder \"${researchFolderName}\". Add at least 2 research docs and ~500 characters of transcript text.`);
+      return;
+    }
+
+    if (!outcomeResearchAlignment) {
+      setReAnalyseError(`This outcome is out of context for the linked research. Add matching evidence or refine the outcome.`);
+      return;
+    }
+
     setIsReAnalysing(true);
-
-    const existingOppNames = new Set(
-      (tableData.rows || [])
-        .map((row) => String(row.cells?.col_opp || "").trim().toLowerCase())
-        .filter(Boolean)
-    );
-
-    // Always call updateData so syncTableToOST reconciles the diagram even when
-    // all candidates are duplicates or no AI rows are returned.
-    const mergeRowsByName = (candidateRows = []) => {
-      const existingRows = (tableData.rows || []).filter(
-        (row) => String(row?.cells?.col_opp || "").trim().length > 0
-      );
-      const newRows = (candidateRows || []).filter((candidateRow) => {
-        const candidateName = String(candidateRow?.cells?.col_opp || "").trim().toLowerCase();
-        return candidateName && !existingOppNames.has(candidateName);
-      });
-      const mergedRows = [...existingRows, ...newRows];
-      
-      // Renumber all rows sequentially by array index (1, 2, 3...)
-      const renumberedRows = mergedRows.map((row, index) => ({
-        ...row,
-        cells: {
-          ...row.cells,
-          col_rprio: String(index + 1),
-        },
-      }));
-      
-      updateData({ rows: renumberedRows });
-      
-      // After merging, rank all opportunities
-      if (renumberedRows.length > 0 && githubAIKey) {
-        rankAllOpportunities(renumberedRows);
-      }
-    };
 
     const rankAllOpportunities = async (rowsToRank) => {
       try {
@@ -6189,16 +6871,7 @@ Do NOT include explanations or any text besides the JSON array.`;
 
     try {
       const normalizedOutcomeName = String(outcomeName || "Desired Outcome").trim() || "Desired Outcome";
-      const researchContent = (Array.isArray(researchDocuments) ? researchDocuments : [])
-        .map((doc, index) => {
-          const content = String(doc?.content || doc?.text || doc?.notes || "").trim();
-          if (!content) return "";
-          const name = String(doc?.name || `Document ${index + 1}`).trim();
-          return `${name}\n${content}`;
-        })
-        .filter(Boolean)
-        .join("\n\n")
-        .slice(0, 6000);
+      const researchContent = await buildResearchEvidenceContext(groundedResearchDocuments, 6000, normalizedOutcomeName, githubAIKey);
 
       const tableEvidenceContent = (Array.isArray(tableData.rows) ? tableData.rows : [])
         .map((row, index) => {
@@ -6230,22 +6903,12 @@ Do NOT include explanations or any text besides the JSON array.`;
       
       const existingOppsSection = existingOppList ? `\nExisting opportunities (do not generate these or close variants):\n${existingOppList}\n\nGenerate only NEW opportunities not already covered above.` : "";
 
-      const aiPrompt = `You are a product discovery expert applying the Opportunity Solution Tree method.
-
-Outcome: ${normalizedOutcomeName}
-
-Research:
-${analysisSource}${existingOppsSection}
-
-Generate 5-8 distinct opportunities. Rules:
-- An opportunity is a specific user need or friction point found in the research
-- Do NOT restate or paraphrase the outcome as an opportunity
-- Phrase as a user need, not a solution
-- Do NOT include solutions, experiments, or any recommendations. Opportunities only.
-- If research context is available, ground each opportunity in the research content
-- If research context is limited, infer plausible opportunities from the outcome and existing table context
-- Return ONLY a JSON array, no other text:
-[{"name": "...", "about": "...", "impact": "High|Medium|Low", "businessObjective": "..."}]`;
+      const aiPrompt = buildGroundedDiscoveryPrompt({
+        outcomeName: normalizedOutcomeName,
+        researchContent: analysisSource,
+        existingOpportunitiesText: existingOppsSection,
+        mode: "generate",
+      });
 
       const generationContextOpportunities = (tableData.rows || [])
         .map((row) => ({
@@ -6266,19 +6929,6 @@ Generate 5-8 distinct opportunities. Rules:
         maxTokens: 1200,
       });
 
-      const extractOpportunityCandidatesFromText = (inputText) => {
-        const text = String(inputText || "").trim();
-        if (!text) return [];
-
-        return text
-          .split(/\n+/)
-          .map((line) => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, "").trim())
-          .filter((line) => line && line.length >= 12)
-          .filter((line) => !/^(return|json|\[|\{|\]|\})/i.test(line))
-          .slice(0, 12)
-          .map((line) => ({ name: line }));
-      };
-
       const extractOpportunityArray = (responseValue) => {
         if (Array.isArray(responseValue)) return responseValue;
 
@@ -6289,7 +6939,7 @@ Generate 5-8 distinct opportunities. Rules:
             const extractedFromParsed = extractOpportunityArray(parsed);
             if (extractedFromParsed.length > 0) return extractedFromParsed;
           }
-          return extractOpportunityCandidatesFromText(responseValue);
+          return [];
         }
 
         if (!responseValue || typeof responseValue !== "object") {
@@ -6394,32 +7044,59 @@ Generate 5-8 distinct opportunities. Rules:
         .filter((item) => item && (typeof item === "object" || typeof item === "string"))
         .map((item, index) => normalizeOpportunityItem(item, index));
 
-      const candidateRows = (aiOpportunities || []).map(opp => ({
-        id: generateId(),
-        cells: {
-          col_opp: String(opp.name || "").trim(),
-          col_about: String(opp.about || "").trim(),
-          col_impact: String(opp.impact || "").trim(),
-          col_rprio: "",
-          col_iprio: "",
-          col_obj: "",
-          col_diagram: "",
-          col_dk: "",
-          col_se: "",
-          col_proto: "",
-          col_b2b: "",
-          col_sol_team: "",
-          col_exp_team: "",
-        }
-      }));
+      const candidateRows = (aiOpportunities || []).map((opp) => createDiscoveryRowFromCandidate(opp));
 
-      const filteredCandidateRows = candidateRows.filter(row => String(row.cells?.col_opp || "").trim().length > 0);
+      const filteredCandidateRows = candidateRows.filter((row) => {
+        const oppText = String(row.cells?.col_opp || "").trim();
+        const aboutText = String(row.cells?.col_about || "").trim();
+        if (!oppText) return false;
+        if (isOpportunityTooGeneric(oppText)) return false;
+        if (isOutcomeRestatement(oppText, normalizedOutcomeName)) return false;
+        const evidenceRelevant = hasEvidenceOverlap(`${oppText}\n${aboutText}`, researchTokenSet, MIN_EVIDENCE_TOKEN_OVERLAP);
+        return evidenceRelevant;
+      });
 
       if (filteredCandidateRows.length === 0) {
-        throw new Error("AI returned no usable opportunities");
+        setReAnalyseNotice("No grounded opportunities found in the current research data. Try adding richer transcript evidence or refining the outcome.");
+        return;
       }
 
-      mergeRowsByName(filteredCandidateRows);
+      const existingNameKeys = new Set(
+        (tableData.rows || []).map((row) => toOpportunityNameKey(row?.cells?.col_opp || "")).filter(Boolean)
+      );
+      const pendingNameKeys = new Set(
+        (pendingAiRows || []).map((row) => toOpportunityNameKey(row?.name || "")).filter(Boolean)
+      );
+
+      const queueCandidates = filteredCandidateRows
+        .map((row) => ({
+          id: generateId(),
+          name: String(row?.cells?.col_opp || "").trim(),
+          about: String(row?.cells?.col_about || "").trim(),
+          impact: String(row?.cells?.col_impact || "").trim(),
+          businessObjective: String(row?.cells?.col_obj || "").trim(),
+          aiProvenance: {
+            source: "ai-generated",
+            reviewStatus: "pending",
+            generatedAt: new Date().toISOString(),
+            generatedBy: "github-ai",
+          },
+        }))
+        .filter((candidate) => {
+          const key = toOpportunityNameKey(candidate.name);
+          if (!key) return false;
+          if (existingNameKeys.has(key)) return false;
+          if (pendingNameKeys.has(key)) return false;
+          pendingNameKeys.add(key);
+          return true;
+        });
+
+      if (queueCandidates.length === 0) {
+        setReAnalyseNotice("AI did not find any new grounded opportunities beyond what is already in your table or review queue.");
+        return;
+      }
+
+      setPendingAiRows((prev) => [...prev, ...queueCandidates]);
     } catch (error) {
       console.error("[Re-analyse] Failed to fetch AI opportunities:", error);
       const errorMessage = String(error?.message || "");
@@ -6436,8 +7113,36 @@ Generate 5-8 distinct opportunities. Rules:
 
   const handleEnrichExisting = async () => {
     setEnrichError("");
+    if (isResearchIndexing) {
+      setEnrichError(
+        expectedResearchDocs > 0
+          ? `Research indexing in progress for folder "${researchFolderName}" (${indexedResearchDocs}/${expectedResearchDocs}). Please wait before running AI analysis.`
+          : `Research indexing in progress for folder "${researchFolderName}". Please wait before running AI analysis.`
+      );
+      return;
+    }
     if (!githubAIKey) {
       setEnrichError("Please add your GitHub AI token in Options.");
+      return;
+    }
+    if (!outcomeQuality.isValid) {
+      setEnrichError(`Outcome quality is too low for AI analysis: ${outcomeQuality.reasons[0] || "Refine the outcome."}`);
+      return;
+    }
+    if (!hasLinkedResearchDocuments) {
+      setEnrichError(`No linked research documents found in folder \"${researchFolderName}\". Upload transcripts before using AI.`);
+      return;
+    }
+    if (!hasGroundedResearch) {
+      setEnrichError(`Linked research documents in folder \"${researchFolderName}\" do not contain transcript text yet. Open the documents and add or import transcript content.`);
+      return;
+    }
+    if (!hasSufficientEvidence) {
+      setEnrichError(`Evidence is too thin in folder \"${researchFolderName}\". Add at least 2 research docs and ~500 characters of transcript text.`);
+      return;
+    }
+    if (!outcomeResearchAlignment) {
+      setEnrichError(`This outcome is out of context for the linked research. Add matching evidence or refine the outcome.`);
       return;
     }
     const rowsToEnrich = (tableData.rows || []).filter(row => String(row.cells?.col_opp || "").trim());
@@ -6448,16 +7153,7 @@ Generate 5-8 distinct opportunities. Rules:
     setIsEnriching(true);
     try {
       const normalizedOutcomeName = String(outcomeName || "Desired Outcome").trim() || "Desired Outcome";
-      const researchContent = (Array.isArray(researchDocuments) ? researchDocuments : [])
-        .map((doc, index) => {
-          const content = String(doc?.content || doc?.text || doc?.notes || "").trim();
-          if (!content) return "";
-          const name = String(doc?.name || `Document ${index + 1}`).trim();
-          return `${name}\n${content}`;
-        })
-        .filter(Boolean)
-        .join("\n\n")
-        .slice(0, 6000);
+      const researchContent = await buildResearchEvidenceContext(groundedResearchDocuments, 6000, normalizedOutcomeName, githubAIKey);
 
       const tableContext = rowsToEnrich
         .map((row, i) => {
@@ -6468,16 +7164,12 @@ Generate 5-8 distinct opportunities. Rules:
         })
         .join("\n");
 
-      const enrichPrompt = `You are a product discovery expert applying the Opportunity Solution Tree method.
-
-Outcome: ${normalizedOutcomeName}
-
-Existing opportunities to analyse:
-${tableContext}
-
-${researchContent ? `Research context:\n${researchContent}\n\n` : ""}For each opportunity above, generate a concise analysis grounded in the research.
-Return ONLY a JSON array with one object per opportunity in the same order (no extra text):
-[{"name": "...", "about": "...", "impact": "High|Medium|Low", "businessObjective": "..."}]`;
+      const enrichPrompt = buildGroundedDiscoveryPrompt({
+        outcomeName: normalizedOutcomeName,
+        researchContent,
+        existingOpportunitiesText: `Existing opportunities to analyse:\n${tableContext}`,
+        mode: "enrich",
+      });
 
       const enrichContextOpportunities = rowsToEnrich.map((row) => ({
         title: String(row?.cells?.col_opp || "").trim(),
@@ -6534,13 +7226,16 @@ Return ONLY a JSON array with one object per opportunity in the same order (no e
           : ["high", "medium", "low"].includes(impactRaw.toLowerCase())
             ? `${impactRaw.charAt(0).toUpperCase()}${impactRaw.slice(1).toLowerCase()}`
             : "";
+        const nextAbout = String(enriched.about || "").trim();
+        const nextObjective = String(enriched.businessObjective || "").trim();
 
         return {
           ...row,
           cells: {
             ...row.cells,
-            col_about: row.cells.col_about || String(enriched.about || "").trim(),
-            col_impact: row.cells.col_impact || normalizedImpact,
+            col_about: nextAbout || row.cells.col_about || "",
+            col_impact: normalizedImpact || row.cells.col_impact || "",
+            col_obj: nextObjective || row.cells.col_obj || "",
           },
         };
       });
@@ -6697,6 +7392,152 @@ Do NOT include explanations or any text besides the JSON array.`;
 
   const updateData = (updates) => { onChange({ ...tableData, ...updates }); };
 
+  const formatProvenanceTimestamp = (rawValue) => {
+    const value = String(rawValue || "").trim();
+    if (!value) return "";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "";
+    return parsed.toLocaleString();
+  };
+
+  const getProvenanceBadgeMeta = (provenance) => {
+    const status = String(provenance?.reviewStatus || "").trim().toLowerCase();
+    if (status === "pending") {
+      return {
+        label: "AI pending",
+        className: "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 border border-amber-200 dark:border-amber-700",
+      };
+    }
+    if (status === "accepted") {
+      return {
+        label: "AI reviewed",
+        className: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700",
+      };
+    }
+    return {
+      label: "AI",
+      className: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-600",
+    };
+  };
+
+  const toOpportunityNameKey = (value) => String(value || "").trim().toLowerCase();
+
+  const buildAcceptedAiProvenance = (candidate) => ({
+    source: "ai-reviewed",
+    reviewAction: "accepted",
+    reviewedAt: new Date().toISOString(),
+    generatedAt: String(candidate?.aiProvenance?.generatedAt || "").trim() || new Date().toISOString(),
+    generatedBy: String(candidate?.aiProvenance?.generatedBy || "github-ai").trim() || "github-ai",
+    reviewStatus: "accepted",
+  });
+
+  const createDiscoveryRowFromCandidate = (candidate) => ({
+    id: generateId(),
+    aiProvenance: candidate?.aiProvenance && typeof candidate.aiProvenance === "object"
+      ? { ...candidate.aiProvenance }
+      : undefined,
+    cells: {
+      col_opp: String(candidate?.name || "").trim(),
+      col_about: String(candidate?.about || "").trim(),
+      col_impact: String(candidate?.impact || "").trim(),
+      col_obj: String(candidate?.businessObjective || "").trim(),
+      col_rprio: "",
+      col_iprio: "",
+      col_diagram: "",
+      col_dk: "",
+      col_se: "",
+      col_proto: "",
+      col_b2b: "",
+      col_sol_team: "",
+      col_exp_team: "",
+    },
+  });
+
+  const mergeRowsByName = (candidateRows = []) => {
+    const existingRows = (tableData.rows || []).filter(
+      (row) => String(row?.cells?.col_opp || "").trim().length > 0
+    );
+    const existingNameKeys = new Set(existingRows.map((row) => toOpportunityNameKey(row?.cells?.col_opp)).filter(Boolean));
+
+    const newRows = (candidateRows || []).filter((candidateRow) => {
+      const candidateName = toOpportunityNameKey(candidateRow?.cells?.col_opp || "");
+      if (!candidateName || existingNameKeys.has(candidateName)) return false;
+      existingNameKeys.add(candidateName);
+      return true;
+    });
+
+    const mergedRows = [...existingRows, ...newRows];
+    const renumberedRows = mergedRows.map((row, index) => ({
+      ...row,
+      cells: {
+        ...row.cells,
+        col_rprio: String(index + 1),
+      },
+    }));
+
+    updateData({ rows: renumberedRows });
+  };
+
+  const acceptPendingCandidate = (candidateId) => {
+    let accepted = null;
+
+    setPendingAiRows((prev) => {
+      const candidate = prev.find((item) => item.id === candidateId);
+      if (!candidate) return prev;
+      accepted = candidate;
+      return prev.filter((item) => item.id !== candidateId);
+    });
+
+    if (!accepted) return;
+    mergeRowsByName([
+      createDiscoveryRowFromCandidate({
+        ...accepted,
+        aiProvenance: buildAcceptedAiProvenance(accepted),
+      }),
+    ]);
+  };
+
+  const rejectPendingCandidate = (candidateId) => {
+    setPendingAiRows((prev) => prev.filter((item) => item.id !== candidateId));
+  };
+
+  const updatePendingCandidate = (candidateId, field, value) => {
+    setPendingAiRows((prev) =>
+      prev.map((item) =>
+        item.id === candidateId
+          ? {
+              ...item,
+              [field]: value,
+            }
+          : item
+      )
+    );
+  };
+
+  const acceptAllPendingCandidates = () => {
+    if (pendingAiRows.length === 0) return;
+    const rowsToMerge = pendingAiRows.map((candidate) =>
+      createDiscoveryRowFromCandidate({
+        ...candidate,
+        aiProvenance: buildAcceptedAiProvenance(candidate),
+      })
+    );
+    mergeRowsByName(rowsToMerge);
+    setPendingAiRows([]);
+  };
+
+  const rejectAllPendingCandidates = () => {
+    setPendingAiRows([]);
+  };
+
+  useEffect(() => {
+    if (!pendingAiRows.length) return;
+    const existingNameKeys = new Set(
+      (tableData.rows || []).map((row) => toOpportunityNameKey(row?.cells?.col_opp || "")).filter(Boolean)
+    );
+    setPendingAiRows((prev) => prev.filter((item) => !existingNameKeys.has(toOpportunityNameKey(item?.name))));
+  }, [tableData.rows, pendingAiRows.length]);
+
   const addRow = () => {
     const newRow = { id: generateId(), cells: tableData.columns.reduce((acc, col) => ({ ...acc, [col.id]: "" }), {}) };
     updateData({ rows: [...tableData.rows, newRow] });
@@ -6766,8 +7607,30 @@ Do NOT include explanations or any text besides the JSON array.`;
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Outcome:</span>
             <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{outcomeName}</span>
+            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${outcomeQuality.isValid ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" : "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"}`}>
+              {outcomeQuality.isValid ? "Outcome: Ready" : "Outcome: Needs refinement"}
+            </span>
           </div>
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Track opportunities, priorities, and evidence for informed decision-making.</p>
+          {!outcomeQuality.isValid && (
+            <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">{outcomeQuality.reasons[0] || "Refine the outcome before running AI."}</p>
+          )}
+          {!hasLinkedResearchDocuments && (
+            <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">No linked research docs found in folder "{researchFolderName}". AI analysis is disabled until transcripts are uploaded.</p>
+          )}
+          {hasLinkedResearchDocuments && !hasGroundedResearch && (
+            <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">Research docs are linked in folder "{researchFolderName}", but they contain no transcript text yet. Add transcript content to enable AI analysis.</p>
+          )}
+          {hasGroundedResearch && !hasSufficientEvidence && (
+            <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">Evidence is too limited for reliable AI analysis. Add more transcript content.</p>
+          )}
+          {isResearchIndexing && (
+            <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+              Indexing linked research documents in folder "{researchFolderName}"
+              {expectedResearchDocs > 0 ? ` (${indexedResearchDocs}/${expectedResearchDocs})` : ""}.
+              AI actions will be enabled when indexing is complete.
+            </p>
+          )}
         </div>
       )}
       <div className="flex items-center justify-end mb-4">
@@ -6776,6 +7639,87 @@ Do NOT include explanations or any text besides the JSON array.`;
           Organize Columns
         </button>
       </div>
+      {pendingAiRows.length > 0 && (
+        <div className="mb-4 p-4 border border-amber-200 dark:border-amber-700 bg-amber-50/70 dark:bg-amber-900/20 rounded-lg">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">AI candidates pending review</p>
+              <p className="text-xs text-amber-700 dark:text-amber-300">Review and approve each opportunity before it is added to the table.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={acceptAllPendingCandidates}
+                className="px-2.5 py-1.5 text-xs font-medium rounded border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"
+              >
+                Accept all
+              </button>
+              <button
+                onClick={rejectAllPendingCandidates}
+                className="px-2.5 py-1.5 text-xs font-medium rounded border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors"
+              >
+                Reject all
+              </button>
+            </div>
+          </div>
+          <div className="space-y-3">
+            {pendingAiRows.map((candidate) => (
+              <div key={candidate.id} className="p-3 rounded border border-amber-200 dark:border-amber-700 bg-white/80 dark:bg-slate-900/70">
+                <div className="mb-2">
+                  <span
+                    className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] leading-none font-medium ${getProvenanceBadgeMeta(candidate?.aiProvenance).className}`}
+                    title={`Generated${formatProvenanceTimestamp(candidate?.aiProvenance?.generatedAt) ? `: ${formatProvenanceTimestamp(candidate?.aiProvenance?.generatedAt)}` : ""}`}
+                  >
+                    {getProvenanceBadgeMeta(candidate?.aiProvenance).label}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <input
+                    value={candidate.name || ""}
+                    onChange={(event) => updatePendingCandidate(candidate.id, "name", event.target.value)}
+                    className="w-full px-2 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200"
+                    placeholder="Opportunity name"
+                  />
+                  <input
+                    value={candidate.impact || ""}
+                    onChange={(event) => updatePendingCandidate(candidate.id, "impact", event.target.value)}
+                    className="w-full px-2 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200"
+                    placeholder="Impact (High, Medium, Low)"
+                  />
+                </div>
+                <textarea
+                  value={candidate.about || ""}
+                  onChange={(event) => updatePendingCandidate(candidate.id, "about", event.target.value)}
+                  className="mt-2 w-full px-2 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200"
+                  rows={2}
+                  placeholder="About"
+                />
+                <textarea
+                  value={candidate.businessObjective || ""}
+                  onChange={(event) => updatePendingCandidate(candidate.id, "businessObjective", event.target.value)}
+                  className="mt-2 w-full px-2 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200"
+                  rows={2}
+                  placeholder="Business objective"
+                />
+                <div className="mt-2 flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => rejectPendingCandidate(candidate.id)}
+                    className="px-2.5 py-1.5 text-xs font-medium rounded border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors"
+                  >
+                    Reject
+                  </button>
+                  <button
+                    onClick={() => acceptPendingCandidate(candidate.id)}
+                    disabled={!String(candidate.name || "").trim()}
+                    className="px-2.5 py-1.5 text-xs font-medium rounded border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    Accept
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {columnOrganizer && (
         <div className="mb-4 p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg">
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">Column Visibility</h3>
@@ -6868,7 +7812,17 @@ Do NOT include explanations or any text besides the JSON array.`;
                 <tr key={row.id} draggable onDragStart={(e) => handleDragStart(e, rowIndex)} onDragOver={(e) => handleDragOver(e, rowIndex)} onDragEnd={handleDragEnd}
                   className={`border-t border-slate-200 dark:border-slate-700 ${draggedRowIndex === rowIndex ? 'opacity-50' : ''} hover:bg-slate-50/50 dark:hover:bg-slate-800/30`}>
                   <td className="px-2 py-2 cursor-move align-top">
-                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" /></svg>
+                    <div className="flex flex-col items-center gap-1">
+                      <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" /></svg>
+                      {row?.aiProvenance?.reviewStatus && (
+                        <span
+                          className={`px-1 py-0.5 rounded text-[9px] leading-none font-medium ${getProvenanceBadgeMeta(row?.aiProvenance).className}`}
+                          title={`${getProvenanceBadgeMeta(row?.aiProvenance).label}${formatProvenanceTimestamp(row?.aiProvenance?.reviewedAt) ? `: ${formatProvenanceTimestamp(row?.aiProvenance?.reviewedAt)}` : ""}`}
+                        >
+                          {getProvenanceBadgeMeta(row?.aiProvenance).label}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   {visibleColumns.map((col) => {
                     const sectionBg =
@@ -6944,33 +7898,43 @@ Do NOT include explanations or any text besides the JSON array.`;
             </svg>
             Add opportunity
           </button>
-          <button 
-            onClick={handleReAnalyse}
-            disabled={isReAnalysing || isEnriching}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-950 bg-white border border-slate-950 rounded-md hover:bg-slate-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            <svg className={`w-3.5 h-3.5 ${isReAnalysing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            {isReAnalysing ? "Finding opportunities..." : "Find more opportunities"}
-          </button>
-          <button
-            onClick={handleEnrichExisting}
-            disabled={isEnriching || isReAnalysing}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-950 bg-white border border-slate-950 rounded-md hover:bg-slate-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            <svg className={`w-3.5 h-3.5 ${isEnriching ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-            </svg>
-            {isEnriching ? "Analysing..." : "Re-analyse existing"}
-          </button>
+          <span title={disableFindMoreButton ? aiButtonTitle : ""}>
+            <button 
+              onClick={handleReAnalyse}
+              disabled={disableFindMoreButton}
+              title={disableFindMoreButton ? aiButtonTitle : ""}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-950 bg-white border border-slate-950 rounded-md hover:bg-slate-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <svg className={`w-3.5 h-3.5 ${isReAnalysing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {isReAnalysing ? "Finding opportunities..." : "Find more opportunities"}
+            </button>
+          </span>
+          <span title={disableEnrichButton ? aiButtonTitle : ""}>
+            <button
+              onClick={handleEnrichExisting}
+              disabled={disableEnrichButton}
+              title={disableEnrichButton ? aiButtonTitle : ""}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-950 bg-white border border-slate-950 rounded-md hover:bg-slate-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <svg className={`w-3.5 h-3.5 ${isEnriching ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+              {isEnriching ? "Analysing..." : "Re-analyse existing"}
+            </button>
+          </span>
         </div>
-        {(reAnalyseError || enrichError) && (
+        {(reAnalyseError || enrichError || reAnalyseNotice) && (
           <div
             role="alert"
-            className="fixed right-4 bottom-4 z-50 max-w-sm rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 shadow-lg"
+            className={`fixed right-4 bottom-4 z-50 max-w-sm rounded-lg px-3 py-2 text-xs font-medium shadow-lg ${
+              reAnalyseNotice && !reAnalyseError && !enrichError
+                ? "border border-blue-200 bg-blue-50 text-blue-700"
+                : "border border-red-200 bg-red-50 text-red-700"
+            }`}
           >
-            {reAnalyseError || enrichError}
+            {reAnalyseError || enrichError || reAnalyseNotice}
           </div>
         )}
         </>
@@ -7006,6 +7970,7 @@ export default function RequirementAnalyzer() {
   const [showExport, setShowExport] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [aboutModalOpen, setAboutModalOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [githubTokenModalOpen, setGithubTokenModalOpen] = useState(false);
   const [githubTokenModalScope, setGithubTokenModalScope] = useState("gist");
@@ -7052,9 +8017,24 @@ export default function RequirementAnalyzer() {
   const [outcomeWizardStep, setOutcomeWizardStep] = useState(1);
   const [outcomeWizardName, setOutcomeWizardName] = useState("");
   const [outcomeWizardConfirmed, setOutcomeWizardConfirmed] = useState(false);
+  const [isCreatingOutcome, setIsCreatingOutcome] = useState(false);
+  const [outcomeCreateNotice, setOutcomeCreateNotice] = useState("");
   const [showArchivedOutcomes, setShowArchivedOutcomes] = useState(false);
   const [outcomeActionsOpenFor, setOutcomeActionsOpenFor] = useState(null);
   const [editingProjectId, setEditingProjectId] = useState(null);
+  const [projectSetupOpen, setProjectSetupOpen] = useState(false);
+  const [projectSetupStep, setProjectSetupStep] = useState(1); // 1 = naming, 2 = folder selection, 3 = uploads, 4 = outcome
+  const [projectSetupName, setProjectSetupName] = useState("");
+  const [projectSetupMode, setProjectSetupMode] = useState("link");
+  const [projectSetupFolderId, setProjectSetupFolderId] = useState("");
+  const [projectSetupNewFolderName, setProjectSetupNewFolderName] = useState("");
+  const [projectSetupOutcomeName, setProjectSetupOutcomeName] = useState("");
+  const [projectSetupUploads, setProjectSetupUploads] = useState([]);
+  const [projectSetupUploadErrors, setProjectSetupUploadErrors] = useState([]);
+  const [projectSetupSubmitting, setProjectSetupSubmitting] = useState(false);
+  const [wizardAutoAnalysisLoading, setWizardAutoAnalysisLoading] = useState(null);
+  const [wizardAutoAnalysisError, setWizardAutoAnalysisError] = useState(null);
+  const projectSetupUploadInputRef = useRef(null);
 
   useEffect(() => {
     localStorage.setItem("activeSection", activeSection);
@@ -7067,6 +8047,12 @@ export default function RequirementAnalyzer() {
   useEffect(() => {
     localStorage.setItem("githubAIKey", githubAIKey);
   }, [githubAIKey]);
+
+  useEffect(() => {
+    if (!outcomeCreateNotice) return;
+    const timeout = setTimeout(() => setOutcomeCreateNotice(""), 6000);
+    return () => clearTimeout(timeout);
+  }, [outcomeCreateNotice]);
 
   useEffect(() => {
     if (!actionsMenuOpen) return;
@@ -7096,13 +8082,75 @@ export default function RequirementAnalyzer() {
     setOutcomeWizardStep(1);
     setOutcomeWizardName("");
     setOutcomeWizardConfirmed(false);
+    setIsCreatingOutcome(false);
   }, []);
 
   const active = useMemo(() => analyses.find((a) => a.id === activeId) || null, [analyses, activeId]);
+  const outcomeWizardQuality = useMemo(
+    () => validateOutcomeQuality(outcomeWizardName),
+    [outcomeWizardName]
+  );
+  const projectSetupOutcomeQuality = useMemo(
+    () => validateOutcomeQuality(projectSetupOutcomeName),
+    [projectSetupOutcomeName]
+  );
   const activeOutcome = useMemo(
     () => active?.outcomes?.find((o) => o.id === active.activeOutcomeId) || null,
     [active]
   );
+
+  const availableResearchFolders = useMemo(() => {
+    const byId = new Map();
+
+    (researchDocuments || []).forEach((doc) => {
+      if (!doc || typeof doc !== "object") return;
+      const rawFolderId = typeof doc.folderId === "string" ? doc.folderId.trim() : "";
+      const rawFolderName = typeof doc.folderName === "string" ? doc.folderName.trim() : "";
+      const folderId = rawFolderId || normalizeFolderId(rawFolderName) || "";
+      const folderName = rawFolderName || "";
+      if (!folderId) return;
+      if (!byId.has(folderId)) {
+        byId.set(folderId, { id: folderId, name: folderName || "Untitled folder" });
+      }
+    });
+
+    (analyses || []).forEach((analysis) => {
+      const folderId = typeof analysis?.research?.linkedFolderId === "string" ? analysis.research.linkedFolderId.trim() : "";
+      const folderName = typeof analysis?.research?.linkedFolderName === "string" ? analysis.research.linkedFolderName.trim() : "";
+      if (!folderId) return;
+      if (!byId.has(folderId)) {
+        byId.set(folderId, { id: folderId, name: folderName || "Untitled folder" });
+      }
+    });
+
+    return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [researchDocuments, analyses]);
+
+  const activeResearchFolderId =
+    (typeof active?.research?.linkedFolderId === "string" && active.research.linkedFolderId.trim())
+      ? active.research.linkedFolderId.trim()
+      : "";
+
+  const activeResearchFolderName =
+    (typeof active?.research?.linkedFolderName === "string" && active.research.linkedFolderName.trim())
+      ? active.research.linkedFolderName.trim()
+      : (availableResearchFolders.find((folder) => folder.id === activeResearchFolderId)?.name || "");
+
+  const projectResearchDocuments = useMemo(() => {
+    if (!activeResearchFolderId) return [];
+    return (researchDocuments || []).filter((doc) => {
+      if (!doc || typeof doc !== "object") return false;
+      const rawFolderId = typeof doc.folderId === "string" ? doc.folderId.trim() : "";
+      const rawFolderName = typeof doc.folderName === "string" ? doc.folderName.trim() : "";
+      const folderId = rawFolderId || normalizeFolderId(rawFolderName) || "";
+      return folderId === activeResearchFolderId;
+    });
+  }, [researchDocuments, activeResearchFolderId]);
+
+  const researchIndexingState = useMemo(() => {
+    return { isIndexing: false, indexedCount: 0, expectedCount: 0, status: "ready" };
+  }, []);
+
   const linkedDocumentsByRowId = useMemo(() => {
     if (!activeOutcome) return {};
 
@@ -7113,7 +8161,7 @@ export default function RequirementAnalyzer() {
     );
 
     const grouped = {};
-    (researchDocuments || []).forEach((doc, index) => {
+    (projectResearchDocuments || []).forEach((doc, index) => {
       if (!doc || typeof doc !== "object") return;
 
       const linkedOpportunityIds = Array.isArray(doc.opportunityIds)
@@ -7137,13 +8185,61 @@ export default function RequirementAnalyzer() {
     });
 
     return grouped;
-  }, [activeOutcome, researchDocuments]);
+  }, [activeOutcome, projectResearchDocuments]);
 
   const openResearchDocumentFromEvidence = useCallback((documentId) => {
     if (typeof documentId !== "string" || !documentId) return;
     setPendingResearchDocumentId(documentId);
     setActiveResearchTab("documents");
     setActiveSection("discoveryResearch");
+  }, []);
+
+  const handleLinkResearchFolder = useCallback((folder) => {
+    if (!activeId) return;
+    const folderId = typeof folder?.id === "string" ? folder.id.trim() : "";
+    const folderName = typeof folder?.name === "string" ? folder.name.trim() : "";
+
+    setAnalyses((prev) => prev.map((analysis) => {
+      if (analysis.id !== activeId) return analysis;
+      const nextResearch = {
+        ...(analysis.research || {}),
+        rounds: Array.isArray(analysis.research?.rounds) ? analysis.research.rounds : [],
+        linkedFolderId: folderId,
+        linkedFolderName: folderName || "",
+      };
+
+      return {
+        ...analysis,
+        research: nextResearch,
+        updatedAt: new Date().toISOString(),
+      };
+    }));
+  }, [activeId]);
+
+  const handleDeleteResearchFolder = useCallback((folderIdToDelete) => {
+    const targetFolderId = typeof folderIdToDelete === "string" ? folderIdToDelete.trim() : "";
+    if (!targetFolderId) return;
+
+    setAnalyses((prev) => prev.map((analysis) => {
+      const linkedFolderId = typeof analysis?.research?.linkedFolderId === "string"
+        ? analysis.research.linkedFolderId.trim()
+        : "";
+
+      if (linkedFolderId !== targetFolderId) return analysis;
+
+      const nextResearch = {
+        ...(analysis.research || {}),
+        rounds: Array.isArray(analysis.research?.rounds) ? analysis.research.rounds : [],
+        linkedFolderId: "",
+        linkedFolderName: "",
+      };
+
+      return {
+        ...analysis,
+        research: nextResearch,
+        updatedAt: new Date().toISOString(),
+      };
+    }));
   }, []);
 
   useEffect(() => {
@@ -7217,7 +8313,17 @@ export default function RequirementAnalyzer() {
             const projects = rows.map((r) =>
               migrateAnalysis(typeof r.data === 'string' ? JSON.parse(r.data) : r.data)
             );
+            const docsFromProjects = normalizeResearchDocumentsCollection(
+              rows.flatMap((row) => {
+                const data = typeof row?.data === 'string' ? JSON.parse(row.data) : row?.data;
+                return Array.isArray(data?.researchDocuments) ? data.researchDocuments : [];
+              })
+            );
             setAnalyses(projects);
+            if (docsFromProjects.length > 0) {
+              setResearchDocuments(docsFromProjects);
+              localStorage.setItem(RESEARCH_DOCUMENTS_KEY, JSON.stringify(docsFromProjects));
+            }
             if (!activeId || !projects.find((a) => a.id === activeId)) {
               setActiveId(projects[0].id);
             }
@@ -7273,7 +8379,10 @@ export default function RequirementAnalyzer() {
             projects: analyses.map((project) => ({
               id: project.id,
               name: project.name || 'Untitled',
-              data: project,
+              data: {
+                ...project,
+                researchDocuments: normalizeResearchDocumentsCollection(researchDocuments),
+              },
             })),
           }),
         });
@@ -7283,7 +8392,7 @@ export default function RequirementAnalyzer() {
     };
 
     persist();
-  }, [analyses, dataLoaded, hasSecureAnalysis]);
+  }, [analyses, researchDocuments, dataLoaded, hasSecureAnalysis]);
 
   // Keep startup neutral: do not force-inject a seeded discovery baseline.
 
@@ -7795,12 +8904,587 @@ Be concise and actionable. Respond in the same language the user writes in.`;
     }));
   }, [active, activeOutcome, updateActive]);
 
-  const createNew = () => {
-    const newA = createBlankAnalysis(appMode === "discovery" ? DEFAULT_DISCOVERY_NEW_PROJECT_NAME : "Untitled Design Task", appMode);
+  const resetProjectSetupWizard = useCallback(() => {
+    setProjectSetupOpen(false);
+    setProjectSetupStep(1);
+    setProjectSetupName("");
+    setProjectSetupMode("link");
+    setProjectSetupFolderId("");
+    setProjectSetupNewFolderName("");
+    setProjectSetupOutcomeName("");
+    setProjectSetupUploads([]);
+    setProjectSetupUploadErrors([]);
+    setProjectSetupSubmitting(false);
+  }, []);
+
+  const dismissWizardAutoAnalysisError = useCallback(() => {
+    setWizardAutoAnalysisError(null);
+  }, []);
+
+  const runWizardAutoOpportunityAnalysis = useCallback(async ({
+    projectId,
+    outcomeId,
+    outcomeName,
+    folderId,
+    uploadedDocuments,
+  }) => {
+    if (!projectId || !outcomeId) return;
+
+    setWizardAutoAnalysisError(null);
+
+    if (!githubAIKey) {
+      setWizardAutoAnalysisError({
+        projectId,
+        outcomeId,
+        message: "Opportunities were not analyzed: add your GitHub AI token in Options, then re-run analysis from Opportunity Solutions.",
+      });
+      return;
+    }
+
+    if (!folderId) {
+      setWizardAutoAnalysisError({
+        projectId,
+        outcomeId,
+        message: "Opportunities were not analyzed: no research folder is linked to this project.",
+      });
+      return;
+    }
+
+    const normalizedUploads = normalizeResearchDocumentsCollection(uploadedDocuments || []);
+    const combinedDocuments = normalizeResearchDocumentsCollection([
+      ...normalizedUploads,
+      ...(Array.isArray(researchDocuments) ? researchDocuments : []),
+    ]);
+
+    const folderDocuments = combinedDocuments.filter((doc) => {
+      const docFolderId = typeof doc?.folderId === "string" ? doc.folderId.trim() : "";
+      return docFolderId === folderId;
+    });
+
+    const groundedFolderDocuments = folderDocuments.filter((doc) =>
+      String(doc?.content || doc?.text || doc?.notes || "").trim().length > 0
+    );
+
+    if (groundedFolderDocuments.length === 0) {
+      setWizardAutoAnalysisError({
+        projectId,
+        outcomeId,
+        message: "Opportunities were not analyzed: no readable research transcript content was found in the linked folder.",
+      });
+      return;
+    }
+
+    setWizardAutoAnalysisLoading({ projectId, outcomeId });
+
+    try {
+      const generatedRows = await buildDiscoveryRowsFromResearch({
+        outcomeName,
+        researchDocuments: groundedFolderDocuments,
+        githubAIKey,
+      });
+
+      if (!Array.isArray(generatedRows) || generatedRows.length === 0) {
+        setWizardAutoAnalysisError({
+          projectId,
+          outcomeId,
+          message: "Opportunities were not analyzed: AI could not extract grounded opportunities from the current research. Add clearer transcript evidence and try again.",
+        });
+        return;
+      }
+
+      const topPriorityRowIds = getTopPriorityRowIds(generatedRows, DIAGRAM_VISIBLE_LIMIT);
+      const normalizedRows = generatedRows.map((row) => ({
+        ...row,
+        cells: {
+          ...(row?.cells || {}),
+          col_diagram: topPriorityRowIds.has(row.id),
+        },
+      }));
+
+      const generatedTreeOpportunities = normalizedRows.map((row) => ({
+        id: row.id.replace("row_", "opp_"),
+        sourceRowId: row.id,
+        text: String(row?.cells?.col_opp || "").trim() || "Untitled Opportunity",
+        showInDiagram: parseDiagramFlag(row?.cells?.col_diagram) === true,
+        solutions: buildSolutionsFromTeamFields(row, []),
+      }));
+
+      const generatedDiscoveryTable = {
+        columns: withDiagramColumn(DEFAULT_DISCOVERY_COLUMNS),
+        rows: normalizedRows,
+      };
+
+      setAnalyses((prev) => prev.map((analysis) => {
+        if (analysis.id !== projectId) return analysis;
+
+        const nextOutcomes = (analysis.outcomes || []).map((outcome) => {
+          if (outcome.id !== outcomeId) return outcome;
+
+          return {
+            ...outcome,
+            discoveryTable: generatedDiscoveryTable,
+            opportunityTree: {
+              outcome: { id: "outcome", text: outcome.name || outcomeName || "Desired Outcome" },
+              opportunities: generatedTreeOpportunities,
+            },
+          };
+        });
+
+        return {
+          ...analysis,
+          outcomes: nextOutcomes,
+          updatedAt: new Date().toISOString(),
+        };
+      }));
+
+      setWizardAutoAnalysisError(null);
+    } catch (error) {
+      const details = error instanceof Error && error.message ? error.message : "Unknown error";
+      setWizardAutoAnalysisError({
+        projectId,
+        outcomeId,
+        message: `Opportunities were not analyzed: ${details}`,
+      });
+    } finally {
+      setWizardAutoAnalysisLoading((prev) => {
+        if (!prev) return null;
+        return prev.projectId === projectId && prev.outcomeId === outcomeId ? null : prev;
+      });
+    }
+  }, [githubAIKey, researchDocuments]);
+
+  const createDiscoveryProjectWithFolder = useCallback((folderId, folderName, projectName, outcomeName, uploadedDocuments = []) => {
+    const nameToUse = typeof projectName === "string" && projectName.trim()
+      ? projectName.trim()
+      : DEFAULT_DISCOVERY_NEW_PROJECT_NAME;
+    const normalizedOutcomeName = String(outcomeName || "").trim() || DEFAULT_DISCOVERY_OUTCOME_NAME;
+
+    const initialOutcome = createOutcome(normalizedOutcomeName, { generateOpportunities: false });
+    const newA = createBlankAnalysis(nameToUse, "discovery");
+    newA.research = {
+      ...(newA.research || {}),
+      rounds: Array.isArray(newA.research?.rounds) ? newA.research.rounds : [],
+      linkedFolderId: folderId || "",
+      linkedFolderName: folderName || "",
+    };
+    newA.outcomes = [initialOutcome];
+    newA.activeOutcomeId = initialOutcome.id;
+
+    const docsToAdd = normalizeResearchDocumentsCollection(uploadedDocuments);
+    if (docsToAdd.length > 0) {
+      setResearchDocuments((prev) => normalizeResearchDocumentsCollection([...docsToAdd, ...(Array.isArray(prev) ? prev : [])]));
+    }
+
     setAnalyses((prev) => [newA, ...prev]);
     setActiveId(newA.id);
-    setActiveSection(appMode === "discovery" ? "opportunityTree" : "overview");
+    setActiveSection("opportunityTree");
+    setActiveResearchTab("documents");
     setPhaseFilter("All");
+
+    return {
+      projectId: newA.id,
+      outcomeId: initialOutcome.id,
+      outcomeName: normalizedOutcomeName,
+      folderId: folderId || "",
+      uploadedDocuments: docsToAdd,
+    };
+  }, []);
+
+  const openDiscoveryProjectSetup = useCallback(() => {
+    const defaultFolder = availableResearchFolders[0] || null;
+
+    setProjectSetupStep(1);
+    setProjectSetupName("");
+    setProjectSetupMode(defaultFolder ? "link" : "create");
+    setProjectSetupFolderId(defaultFolder?.id || "");
+    setProjectSetupNewFolderName("");
+    setProjectSetupOutcomeName("");
+    setProjectSetupUploads([]);
+    setProjectSetupUploadErrors([]);
+    setProjectSetupSubmitting(false);
+    setProjectSetupOpen(true);
+  }, [availableResearchFolders]);
+
+  const handleProjectSetupFileUpload = useCallback(async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (files.length === 0) return;
+
+    const parsedDocs = [];
+    const errors = [];
+
+    for (const file of files) {
+      const lowerName = String(file?.name || "").toLowerCase();
+      if (!lowerName.endsWith(".txt") && !lowerName.endsWith(".docx")) {
+        errors.push(`${file.name}: Only .txt and .docx files are supported.`);
+        continue;
+      }
+
+      try {
+        let content = "";
+
+        if (lowerName.endsWith(".txt")) {
+          content = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+            reader.onerror = () => reject(new Error("Failed to read file"));
+            reader.readAsText(file);
+          });
+        } else {
+          const arrayBuffer = await file.arrayBuffer();
+          const result = await mammoth.extractRawText({ arrayBuffer });
+          content = String(result?.value || "").trim();
+        }
+
+        if (!String(content || "").trim()) {
+          errors.push(`${file.name}: No readable text found.`);
+          continue;
+        }
+
+        const defaultName = file.name.replace(/\.[^/.]+$/, "") || file.name;
+        parsedDocs.push({
+          id: `setup_doc_${generateId()}`,
+          name: defaultName,
+          tag: "DK",
+          content: String(content || "").trim(),
+          sourceFilename: file.name,
+        });
+      } catch {
+        errors.push(`${file.name}: Could not parse this file.`);
+      }
+    }
+
+    if (parsedDocs.length > 0) {
+      setProjectSetupUploads((prev) => [...prev, ...parsedDocs]);
+    }
+    if (errors.length > 0) {
+      setProjectSetupUploadErrors((prev) => [...prev, ...errors]);
+    }
+  }, []);
+
+  const removeProjectSetupUpload = useCallback((docId) => {
+    setProjectSetupUploads((prev) => prev.filter((doc) => doc.id !== docId));
+  }, []);
+
+  const updateProjectSetupUploadTag = useCallback((docId, tag) => {
+    setProjectSetupUploads((prev) => prev.map((doc) => (doc.id === docId ? { ...doc, tag } : doc)));
+  }, []);
+
+  const createNew = () => {
+    if (appMode === "discovery") {
+      openDiscoveryProjectSetup();
+      return;
+    }
+
+    const newA = createBlankAnalysis("Untitled Design Task", "design-specs");
+    setAnalyses((prev) => [newA, ...prev]);
+    setActiveId(newA.id);
+    setActiveSection("overview");
+    setPhaseFilter("All");
+  };
+
+  const confirmDiscoveryProjectSetup = useCallback(() => {
+    if (projectSetupStep === 1) {
+      const name = String(projectSetupName || "").trim();
+      if (!name) return;
+      setProjectSetupStep(2);
+      return;
+    }
+
+    if (projectSetupStep === 2) {
+      if (projectSetupMode === "link") {
+        const selectedFolderId = String(projectSetupFolderId || "").trim();
+        if (!selectedFolderId) return;
+      }
+
+      if (projectSetupMode === "create") {
+        const name = String(projectSetupNewFolderName || "").trim();
+        if (!name) return;
+      }
+
+      setProjectSetupStep(3);
+      return;
+    }
+
+    if (projectSetupStep === 3) {
+      setProjectSetupStep(4);
+      return;
+    }
+
+    if (projectSetupStep === 4) {
+      const outcomeName = String(projectSetupOutcomeName || "").trim();
+      if (!outcomeName || !projectSetupOutcomeQuality.isValid) return;
+      if (projectSetupSubmitting) return;
+
+      setProjectSetupSubmitting(true);
+
+      const selectedFolder = projectSetupMode === "create"
+        ? {
+            id: normalizeFolderId(projectSetupNewFolderName) || `folder_${generateId()}`,
+            name: String(projectSetupNewFolderName || "").trim() || "Untitled folder",
+          }
+        : (availableResearchFolders.find((folder) => folder.id === projectSetupFolderId)
+            || null);
+
+      if (!selectedFolder || !selectedFolder.id) {
+        setProjectSetupSubmitting(false);
+        return;
+      }
+
+      const onboardingDocuments = (projectSetupUploads || [])
+        .filter((doc) => String(doc?.content || "").trim().length > 0)
+        .map((doc) => ({
+          id: `doc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          name: String(doc?.name || "Uploaded document").trim() || "Uploaded document",
+          tag: String(doc?.tag || "Other").trim() || "Other",
+          opportunityIds: [],
+          folderId: selectedFolder.id,
+          folderName: selectedFolder.name,
+          content: String(doc?.content || "").trim(),
+          uploadedAt: new Date().toISOString(),
+        }));
+
+      const createdProject = createDiscoveryProjectWithFolder(
+        selectedFolder.id,
+        selectedFolder.name,
+        projectSetupName,
+        outcomeName,
+        onboardingDocuments
+      );
+
+      if (createdProject) {
+        runWizardAutoOpportunityAnalysis(createdProject);
+      }
+
+      resetProjectSetupWizard();
+    }
+  }, [
+    projectSetupStep,
+    projectSetupName,
+    projectSetupMode,
+    projectSetupNewFolderName,
+    projectSetupFolderId,
+    projectSetupOutcomeName,
+    projectSetupOutcomeQuality,
+    projectSetupUploads,
+    projectSetupSubmitting,
+    availableResearchFolders,
+    createDiscoveryProjectWithFolder,
+    runWizardAutoOpportunityAnalysis,
+    resetProjectSetupWizard,
+  ]);
+
+  const renderProjectSetupModal = () => {
+    if (!projectSetupOpen) return null;
+
+    const modalWidthClass = projectSetupStep === 3 ? "max-w-2xl" : "max-w-xl";
+
+    return (
+      <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={resetProjectSetupWizard}>
+        <div className={`w-full ${modalWidthClass} bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700`} onClick={(e) => e.stopPropagation()}>
+          <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-700">
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Set up Discovery Project</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Step {projectSetupStep} of 4</p>
+          </div>
+
+          <div className="px-5 py-4 space-y-4 max-h-[65vh] overflow-y-auto">
+            {projectSetupStep === 1 && (
+              <div className="max-w-2xl">
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1.5">Project name</label>
+                <input
+                  type="text"
+                  value={projectSetupName}
+                  onChange={(e) => setProjectSetupName(e.target.value)}
+                  placeholder="e.g., Mobile App Redesign"
+                  className="w-full max-w-[21rem] px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  autoFocus
+                />
+              </div>
+            )}
+
+            {projectSetupStep === 2 && (
+              <>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={projectSetupMode === "link"}
+                    onChange={() => setProjectSetupMode("link")}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-slate-700 dark:text-slate-200">Link existing folder</span>
+                    <span className="block text-xs text-slate-500 dark:text-slate-400">Use existing Research Data.</span>
+                  </span>
+                </label>
+
+                <div className="pl-6">
+                  <select
+                    value={projectSetupFolderId}
+                    onChange={(e) => setProjectSetupFolderId(e.target.value)}
+                    disabled={projectSetupMode !== "link" || availableResearchFolders.length === 0}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 disabled:opacity-60"
+                  >
+                    {availableResearchFolders.length === 0 ? (
+                      <option value="">No folders available</option>
+                    ) : (
+                      availableResearchFolders.map((folder) => (
+                        <option key={folder.id} value={folder.id}>{folder.name}</option>
+                      ))
+                    )}
+                  </select>
+                  {availableResearchFolders.length === 0 && (
+                    <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">No existing folders found. Choose "Create new folder" to continue.</p>
+                  )}
+                </div>
+
+                <div className="pt-2" />
+
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={projectSetupMode === "create"}
+                    onChange={() => setProjectSetupMode("create")}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-slate-700 dark:text-slate-200">Create new folder</span>
+                    <span className="block text-xs text-slate-500 dark:text-slate-400">Create a dedicated folder for this project.</span>
+                  </span>
+                </label>
+
+                <div className="pl-6">
+                  <input
+                    type="text"
+                    value={projectSetupNewFolderName}
+                    onChange={(e) => setProjectSetupNewFolderName(e.target.value)}
+                    disabled={projectSetupMode !== "create"}
+                    placeholder="Folder name"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 disabled:opacity-60"
+                  />
+                </div>
+              </>
+            )}
+
+            {projectSetupStep === 3 && (
+              <>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm text-slate-700 dark:text-slate-200">Upload research documents (optional)</p>
+                  <button
+                    type="button"
+                    onClick={() => projectSetupUploadInputRef.current?.click()}
+                    className="px-3 py-1.5 text-xs font-medium border border-slate-300 dark:border-slate-600 rounded-md text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700"
+                  >
+                    Add documents
+                  </button>
+                </div>
+
+                <input
+                  ref={projectSetupUploadInputRef}
+                  type="file"
+                  accept=".docx,.txt"
+                  multiple
+                  onChange={handleProjectSetupFileUpload}
+                  className="hidden"
+                />
+
+                {projectSetupUploads.length === 0 ? (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">No documents uploaded yet. You can skip this step and upload later.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {projectSetupUploads.map((doc) => (
+                      <div key={doc.id} className="flex items-center gap-2 p-2 rounded border border-slate-200 dark:border-slate-700">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">{doc.name}</p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">{String(doc.content || "").length} chars</p>
+                        </div>
+                        <select
+                          value={doc.tag || "Other"}
+                          onChange={(e) => updateProjectSetupUploadTag(doc.id, e.target.value)}
+                          className="px-2 py-1 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200"
+                        >
+                          <option value="DK">DK</option>
+                          <option value="SE">SE</option>
+                          <option value="Other">Other</option>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => removeProjectSetupUpload(doc.id)}
+                          aria-label="Remove document"
+                          className="px-2 py-1 text-xs border border-rose-300 dark:border-rose-700 rounded text-rose-600 dark:text-rose-300"
+                        >
+                          X
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {projectSetupUploadErrors.length > 0 && (
+                  <div className="p-2 rounded border border-amber-200 bg-amber-50 text-amber-700 text-xs space-y-1">
+                    {projectSetupUploadErrors.map((err, idx) => <p key={`setup_err_${idx}`}>{err}</p>)}
+                  </div>
+                )}
+              </>
+            )}
+
+            {projectSetupStep === 4 && (
+              <>
+                <div className="max-w-2xl">
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1.5">Initial outcome</label>
+                  <input
+                    type="text"
+                    value={projectSetupOutcomeName}
+                    onChange={(e) => setProjectSetupOutcomeName(e.target.value)}
+                    placeholder="e.g. Reduce time on site for admins"
+                    className="w-full max-w-[21rem] px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    autoFocus
+                  />
+                </div>
+                {!projectSetupOutcomeQuality.isValid && String(projectSetupOutcomeName || "").trim() && (
+                  <div className="p-3 bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-700 rounded-lg">
+                    <p className="text-sm font-medium text-rose-800 dark:text-rose-300">Outcome needs refinement</p>
+                    <ul className="text-xs text-rose-700 dark:text-rose-300 mt-2 space-y-1.5 list-disc pl-4">
+                      {projectSetupOutcomeQuality.reasons.map((reason) => (
+                        <li key={reason}>{reason}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="px-5 py-4 border-t border-slate-100 dark:border-slate-700 flex items-center justify-end gap-2">
+            <button
+              onClick={resetProjectSetupWizard}
+              className="px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded text-slate-600 dark:text-slate-300"
+            >
+              Cancel
+            </button>
+            {projectSetupStep > 1 && (
+              <button
+                onClick={() => setProjectSetupStep((prev) => Math.max(1, prev - 1))}
+                className="px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded text-slate-600 dark:text-slate-300"
+              >
+                Back
+              </button>
+            )}
+            <button
+              onClick={confirmDiscoveryProjectSetup}
+              disabled={
+                projectSetupSubmitting
+                || (projectSetupStep === 1 && !String(projectSetupName || "").trim())
+                || (projectSetupStep === 2 && projectSetupMode === "create" && !String(projectSetupNewFolderName || "").trim())
+                || (projectSetupStep === 4 && (!String(projectSetupOutcomeName || "").trim() || !projectSetupOutcomeQuality.isValid))
+              }
+              className="px-3 py-2 text-sm font-medium bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {projectSetupStep < 4 ? "Next" : (projectSetupSubmitting ? "Creating..." : "Create project")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const createDesignTaskFromOST = useCallback(({ outcome, opportunity, solution, experiment }) => {
@@ -7879,8 +9563,9 @@ Be concise and actionable. Respond in the same language the user writes in.`;
   };
 
   // --- Outcome CRUD ---
-  const addOutcome = useCallback((name) => {
+  const addOutcome = useCallback(async (name) => {
     const newOutcome = createOutcome(name, { generateOpportunities: true });
+
     setAnalyses((prev) =>
       prev.map((a) => {
         if (a.id !== activeId) return a;
@@ -7892,7 +9577,140 @@ Be concise and actionable. Respond in the same language the user writes in.`;
         };
       })
     );
-  }, [activeId]);
+
+    const outcomeQuality = validateOutcomeQuality(name);
+    const groundedProjectDocs = (Array.isArray(projectResearchDocuments) ? projectResearchDocuments : []).filter(
+      (doc) => String(doc?.content || doc?.text || doc?.notes || "").trim().length > 0
+    );
+    const groundedChars = groundedProjectDocs.reduce(
+      (sum, doc) => sum + String(doc?.content || doc?.text || doc?.notes || "").trim().length,
+      0
+    );
+    const hasSufficientEvidence = groundedProjectDocs.length >= 2 && groundedChars >= 500;
+
+    if (!githubAIKey) {
+      console.warn("[Create Outcome] AI skipped: missing GitHub AI token");
+      return {
+        outcome: newOutcome,
+        generatedCount: 0,
+        reason: "AI was skipped because no GitHub AI token is configured in Options.",
+      };
+    }
+
+    if (!outcomeQuality.isValid) {
+      console.warn("[Create Outcome] AI skipped: outcome quality invalid", outcomeQuality.reasons);
+      return {
+        outcome: newOutcome,
+        generatedCount: 0,
+        reason: `AI was skipped because the outcome needs refinement: ${outcomeQuality.reasons?.[0] || "Outcome quality is too low."}`,
+      };
+    }
+
+    if (!hasSufficientEvidence) {
+      console.warn("[Create Outcome] AI skipped: insufficient evidence", {
+        projectResearchDocuments: Array.isArray(projectResearchDocuments) ? projectResearchDocuments.length : 0,
+        groundedProjectDocs: groundedProjectDocs.length,
+        groundedChars,
+      });
+      return {
+        outcome: newOutcome,
+        generatedCount: 0,
+        reason: "AI was skipped because linked research evidence is still too thin (need at least 2 grounded docs and ~500 characters).",
+      };
+    }
+
+    try {
+      const generatedRows = await buildDiscoveryRowsFromResearch({
+        outcomeName: name,
+        researchDocuments: groundedProjectDocs,
+        githubAIKey,
+      });
+
+      if (!Array.isArray(generatedRows) || generatedRows.length === 0) {
+        return {
+          outcome: newOutcome,
+          generatedCount: 0,
+          reason: "AI did not find grounded opportunities from the current research data.",
+        };
+      }
+
+      const topPriorityRowIds = getTopPriorityRowIds(generatedRows, 3);
+      const rowsWithDiagram = generatedRows.map((row) => ({
+        ...row,
+        cells: {
+          ...(row?.cells || {}),
+          col_diagram: topPriorityRowIds.has(row.id),
+        },
+      }));
+
+      const generatedOpportunities = rowsWithDiagram.map((row) => ({
+        id: `opp_${generateId()}`,
+        text: String(row?.cells?.col_opp || "").trim(),
+        sourceRowId: row.id,
+        showInDiagram: topPriorityRowIds.has(row.id),
+        solutions: buildSolutionsFromTeamFields(row, []),
+      }));
+
+      // Auto-link generated opportunities to source documents for evidence display
+      const opportunityIds = generatedOpportunities.map((opp) => opp.id);
+      const groundedDocIds = new Set(
+        groundedProjectDocs
+          .map((doc) => String(doc?.id || "").trim())
+          .filter(Boolean)
+      );
+
+      const updatedResearchDocuments = (researchDocuments || []).map((doc) => {
+        if (!groundedDocIds.has(String(doc?.id || "").trim())) return doc;
+        const existingIds = Array.isArray(doc.opportunityIds) ? doc.opportunityIds : [];
+        const mergedIds = Array.from(new Set([...existingIds, ...opportunityIds]));
+        return {
+          ...doc,
+          opportunityIds: mergedIds,
+        };
+      });
+
+      if (
+        updatedResearchDocuments.length > 0
+        && JSON.stringify(updatedResearchDocuments) !== JSON.stringify(researchDocuments)
+      ) {
+        setResearchDocuments(updatedResearchDocuments);
+        localStorage.setItem(RESEARCH_DOCUMENTS_KEY, JSON.stringify(updatedResearchDocuments));
+      }
+
+      setAnalyses((prev) =>
+        prev.map((analysis) => {
+          if (analysis.id !== activeId) return analysis;
+          return {
+            ...analysis,
+            outcomes: (analysis.outcomes || []).map((outcome) => {
+              if (outcome.id !== newOutcome.id) return outcome;
+              return {
+                ...outcome,
+                discoveryTable: {
+                  columns: DEFAULT_DISCOVERY_COLUMNS,
+                  rows: rowsWithDiagram,
+                },
+                opportunityTree: {
+                  outcome: { id: "outcome", text: name },
+                  opportunities: generatedOpportunities,
+                },
+              };
+            }),
+            updatedAt: new Date().toISOString(),
+          };
+        })
+      );
+
+      return { outcome: newOutcome, generatedCount: rowsWithDiagram.length, reason: "" };
+    } catch (error) {
+      console.error("[Create Outcome] AI generation failed:", error);
+      return {
+        outcome: newOutcome,
+        generatedCount: 0,
+        reason: "AI generation failed. Check your token and try again.",
+      };
+    }
+  }, [activeId, githubAIKey, projectResearchDocuments]);
 
   const archiveOutcome = useCallback((outcomeId) => {
     setAnalyses((prev) =>
@@ -9168,6 +10986,8 @@ Be concise and actionable. Respond in the same language the user writes in.`;
             </button>
           </div>
         </div>
+
+        {renderProjectSetupModal()}
       </div>
     );
   }
@@ -9210,15 +11030,53 @@ Be concise and actionable. Respond in the same language the user writes in.`;
       },
     };
 
+    const isWizardAutoAnalysisActive = Boolean(
+      wizardAutoAnalysisLoading
+      && wizardAutoAnalysisLoading.projectId === active.id
+      && wizardAutoAnalysisLoading.outcomeId === activeOutcome.id
+    );
+
+    const wizardAnalysisErrorMessage = (
+      wizardAutoAnalysisError
+      && wizardAutoAnalysisError.projectId === active.id
+      && wizardAutoAnalysisError.outcomeId === activeOutcome.id
+    )
+      ? wizardAutoAnalysisError.message
+      : "";
+
     return (
-      <OSTCanvas
-        outcomeId={activeOutcome.id}
-        data={canvasData}
-        researchDocuments={researchDocuments}
-        onCreateDesignTask={createDesignTaskFromOST}
-        onOpenDesignTask={openDesignTaskFromOST}
-        onChange={(v) => updateOutcomeField(activeOutcome.id, "opportunityTree", v)}
-      />
+      <div className="h-full relative">
+        {wizardAnalysisErrorMessage && (
+          <div className="mx-6 mt-4 mb-2 rounded-lg border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-900/20 px-3 py-2 flex items-start gap-3">
+            <p className="text-sm text-rose-700 dark:text-rose-300 flex-1">{wizardAnalysisErrorMessage}</p>
+            <button
+              type="button"
+              onClick={dismissWizardAutoAnalysisError}
+              className="px-2 py-1 text-xs border border-rose-300 dark:border-rose-700 rounded text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/30"
+            >
+              Close
+            </button>
+          </div>
+        )}
+
+        <OSTCanvas
+          outcomeId={activeOutcome.id}
+          data={canvasData}
+          researchDocuments={researchDocuments}
+          onCreateDesignTask={createDesignTaskFromOST}
+          onOpenDesignTask={openDesignTaskFromOST}
+          onChange={(v) => updateOutcomeField(activeOutcome.id, "opportunityTree", v)}
+        />
+
+        {isWizardAutoAnalysisActive && (
+          <div className="absolute inset-0 bg-white/70 dark:bg-slate-900/70 backdrop-blur-[1px] flex items-center justify-center z-20">
+            <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 shadow-md flex items-center gap-3">
+              <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+              <p className="text-sm text-slate-700 dark:text-slate-200">Analyzing opportunities from research...</p>
+            </div>
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -9309,12 +11167,12 @@ Be concise and actionable. Respond in the same language the user writes in.`;
             </div>
           );
         }
-        return <DiscoveryTableSection data={activeOutcome.discoveryTable} outcomeName={activeOutcome.name} linkedDocumentsByRowId={linkedDocumentsByRowId} onOpenEvidenceReference={openResearchDocumentFromEvidence} researchDocuments={researchDocuments} githubAIKey={githubAIKey} onChange={(v) => { updateOutcomeField(activeOutcome.id, "discoveryTable", v); syncTableToOST(v); }} />;
+        return <DiscoveryTableSection data={activeOutcome.discoveryTable} outcomeName={activeOutcome.name} linkedDocumentsByRowId={linkedDocumentsByRowId} onOpenEvidenceReference={openResearchDocumentFromEvidence} researchDocuments={projectResearchDocuments} researchFolderName={activeResearchFolderName} researchIndexing={researchIndexingState} githubAIKey={githubAIKey} onChange={(v) => { updateOutcomeField(activeOutcome.id, "discoveryTable", v); syncTableToOST(v); }} />;
       }
       case "discoveryResearch":
-        return activeResearchTab === "feedback" ? <FeedbackSection /> : <DocumentsSection opportunities={activeOutcome?.opportunityTree?.opportunities || []} onResearchDocumentsChange={setResearchDocuments} openDocumentId={pendingResearchDocumentId} onOpenDocumentHandled={() => setPendingResearchDocumentId(null)} />;
+        return activeResearchTab === "feedback" ? <FeedbackSection /> : <DocumentsSection opportunities={activeOutcome?.opportunityTree?.opportunities || []} onResearchDocumentsChange={setResearchDocuments} openDocumentId={pendingResearchDocumentId} onOpenDocumentHandled={() => setPendingResearchDocumentId(null)} linkedFolderId={activeResearchFolderId} linkedFolderName={activeResearchFolderName} availableFolders={availableResearchFolders} onLinkFolderChange={handleLinkResearchFolder} onDeleteResearchFolder={handleDeleteResearchFolder} />;
       case "opportunityTree": return null;
-      case "sourceDocuments": return <DocumentsSection opportunities={activeOutcome?.opportunityTree?.opportunities || []} onResearchDocumentsChange={setResearchDocuments} openDocumentId={pendingResearchDocumentId} onOpenDocumentHandled={() => setPendingResearchDocumentId(null)} />;
+      case "sourceDocuments": return <DocumentsSection opportunities={activeOutcome?.opportunityTree?.opportunities || []} onResearchDocumentsChange={setResearchDocuments} openDocumentId={pendingResearchDocumentId} onOpenDocumentHandled={() => setPendingResearchDocumentId(null)} linkedFolderId={activeResearchFolderId} linkedFolderName={activeResearchFolderName} availableFolders={availableResearchFolders} onLinkFolderChange={handleLinkResearchFolder} onDeleteResearchFolder={handleDeleteResearchFolder} />;
       case "feedback": return <FeedbackSection />;
       default: return null;
     }
@@ -9358,6 +11216,13 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                 className={`transition-colors ${(activeSection === "opportunityTree" || activeSection === "discoveryTable") ? "text-slate-900 dark:text-slate-100 font-medium" : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"}`}
               >
                 OST
+              </button>
+              <button
+                onClick={() => setAboutModalOpen(true)}
+                className="text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
+                title="About this tool"
+              >
+                About
               </button>
             </div>
           </div>
@@ -9406,6 +11271,13 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
                     </svg>
                   )}
+                </button>
+                <button
+                  onClick={() => setAboutModalOpen(true)}
+                  className="px-3 py-2 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors text-sm"
+                  title="About this tool"
+                >
+                  About
                 </button>
                 <div className="relative" ref={actionsMenuRef}>
                   <button
@@ -9982,6 +11854,83 @@ Be concise and actionable. Respond in the same language the user writes in.`;
         analysis={active}
       />
 
+      {/* About Modal */}
+      {aboutModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setAboutModalOpen(false)}>
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between shrink-0">
+              <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">How AI Analysis Works</h2>
+              <button onClick={() => setAboutModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 text-xl leading-none">×</button>
+            </div>
+            <div className="px-6 py-5 overflow-y-auto space-y-5 text-sm text-slate-600 dark:text-slate-300">
+              <p className="text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wide font-semibold">Pipeline overview</p>
+
+              <div className="space-y-4">
+                <div className="flex gap-3">
+                  <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">1</span>
+                  <div>
+                    <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Pre-flight validation</p>
+                    <p className="text-slate-500 dark:text-slate-400">Before any API call, the outcome is checked for minimum length, a measurable action verb, and domain context. At least one meaningful token in the outcome must overlap with the research corpus — this gate prevents empty-evidence runs.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">2</span>
+                  <div>
+                    <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Chunk extraction</p>
+                    <p className="text-slate-500 dark:text-slate-400">Each linked research document is split into natural paragraphs. When a document has fewer than 3 paragraphs, it falls back to 120-word sliding windows. A typical set of 3 interview transcripts produces 40–80 chunks.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">3</span>
+                  <div>
+                    <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Relevance scoring — semantic then keyword</p>
+                    <p className="text-slate-500 dark:text-slate-400">All chunks plus the outcome are sent in a single batch to <span className="font-mono text-xs bg-slate-100 dark:bg-slate-700 px-1 rounded">text-embedding-3-small</span>. Each chunk is scored by cosine similarity against the outcome vector — this catches synonym matches like "subscriber churn" against "reduce cancellations". If the embeddings call fails for any reason, the system falls back to keyword overlap scoring (token overlap ÷ √chunk length), using the same tokenizer used everywhere else in the app.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">4</span>
+                  <div>
+                    <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Context packing</p>
+                    <p className="text-slate-500 dark:text-slate-400">Chunks are sorted by score descending. The highest-scoring chunks are packed into a 6,000-character budget in relevance order. Lower-scoring chunks are discarded before the LLM ever sees them — the model always gets the most relevant evidence for the specific outcome, not a random front-slice of documents.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">5</span>
+                  <div>
+                    <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Grounded generation</p>
+                    <p className="text-slate-500 dark:text-slate-400">The selected chunks are passed to GPT-4o as the only evidence section. The prompt treats the outcome as a fixed question, instructs the model to reason semantically rather than literally, and returns <span className="font-mono text-xs bg-slate-100 dark:bg-slate-700 px-1 rounded">[]</span> if the evidence is insufficient — preventing hallucinated opportunities.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">6</span>
+                  <div>
+                    <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Post-generation validation</p>
+                    <p className="text-slate-500 dark:text-slate-400">Each AI-generated opportunity is filtered: vague statements like "improve user experience" are rejected, any opportunity with ≥65% Jaccard similarity to the outcome text is treated as a restatement and dropped, and each remaining opportunity must share at least one meaningful token with the full research corpus.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">7</span>
+                  <div>
+                    <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Ranking pass</p>
+                    <p className="text-slate-500 dark:text-slate-400">A second GPT-4o call ranks surviving opportunities by strategic priority (user impact × business value × feasibility) and writes back to the Research Priority column. This is a bonus step — failure is silent and does not block results.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
+                <p className="text-xs text-slate-400 dark:text-slate-500">Token usage: ~5k tokens per Re-analyse (embedding batch). The GitHub Models free tier supports approximately 30 full analysis runs per month before the embedding limit is reached. GPT-4o calls are counted separately against your GitHub Copilot allowance.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* GitHub Token Modal */}
       {githubTokenModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setGithubTokenModalOpen(false)}>
@@ -10133,6 +12082,8 @@ Be concise and actionable. Respond in the same language the user writes in.`;
         </div>
       )}
 
+      {renderProjectSetupModal()}
+
       {/* Outcome Creation Wizard Sheet */}
       {outcomeWizardOpen && (
         <div className="fixed inset-0 z-50">
@@ -10187,6 +12138,16 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                       <li>This ensures each outcome has focused, relevant opportunities</li>
                     </ul>
                   </div>
+                  {!outcomeWizardQuality.isValid && (
+                    <div className="p-3 bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-700 rounded-lg">
+                      <p className="text-sm font-medium text-rose-800 dark:text-rose-300">Outcome needs refinement before AI starter generation</p>
+                      <ul className="text-xs text-rose-700 dark:text-rose-300 mt-2 space-y-1.5 list-disc pl-4">
+                        {outcomeWizardQuality.reasons.map((reason) => (
+                          <li key={reason}>{reason}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   <label className="flex items-start gap-2 cursor-pointer">
                     <input
                       type="checkbox"
@@ -10226,20 +12187,37 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                 )}
                 {outcomeWizardStep === 2 && (
                   <button
-                    onClick={() => {
-                      addOutcome(outcomeWizardName.trim());
+                    onClick={async () => {
+                      if (isCreatingOutcome) return;
+                      setOutcomeCreateNotice("");
+                      setIsCreatingOutcome(true);
+                      const createdOutcome = await addOutcome(outcomeWizardName.trim());
                       closeOutcomeWizard();
-                      setActiveSection("opportunityTree");
+                      const generatedCount = Number(createdOutcome?.generatedCount || 0);
+                      if (generatedCount === 0) {
+                        const reason = String(createdOutcome?.reason || "").trim();
+                        setOutcomeCreateNotice(reason || "Outcome was created, but AI did not add any opportunities.");
+                      }
+                      setActiveSection(generatedCount > 0 ? "opportunityTree" : "discoveryTable");
                     }}
-                    disabled={!outcomeWizardConfirmed}
+                    disabled={!outcomeWizardConfirmed || !outcomeWizardQuality.isValid || isCreatingOutcome}
                     className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Create Outcome
+                    {isCreatingOutcome ? "Creating Outcome..." : "Create Outcome"}
                   </button>
                 )}
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {outcomeCreateNotice && (
+        <div
+          role="alert"
+          className="fixed right-4 bottom-4 z-50 max-w-sm rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 shadow-lg"
+        >
+          {outcomeCreateNotice}
         </div>
       )}
 
