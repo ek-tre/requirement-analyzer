@@ -7974,9 +7974,9 @@ export default function RequirementAnalyzer() {
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
   const [aboutSubpage, setAboutSubpage] = useState("about");
   const [aboutExpandedSections, setAboutExpandedSections] = useState({
-    analysis: true,
-    data: true,
-    potentialData: true,
+    analysis: false,
+    data: false,
+    potentialData: false,
     potentialReliability: false,
     potentialUx: false,
     potentialConsistency: false,
@@ -8056,11 +8056,14 @@ export default function RequirementAnalyzer() {
   const openAboutPage = useCallback(() => {
     setActiveSection("about");
     setAboutSubpage("about");
-    setAboutExpandedSections((prev) => ({
-      ...prev,
-      analysis: true,
-      data: true,
-    }));
+    setAboutExpandedSections({
+      analysis: false,
+      data: false,
+      potentialData: false,
+      potentialReliability: false,
+      potentialUx: false,
+      potentialConsistency: false,
+    });
   }, []);
 
   useEffect(() => {
