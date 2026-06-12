@@ -11081,16 +11081,22 @@ Be concise and actionable. Respond in the same language the user writes in.`;
             }} />
           )}
         </div>
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <p className="text-lg font-medium text-slate-700 dark:text-slate-200 mb-4">No projects yet</p>
-            <button
-              onClick={createNew}
-              className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
-            >
-              Create {appMode === "discovery" ? "Discovery" : "Design"} Project
-            </button>
-          </div>
+        <div className="flex-1 min-h-0">
+          {activeSection === "about" ? (
+            <div className="h-full overflow-y-auto">{renderAboutPage()}</div>
+          ) : (
+            <div className="h-full flex items-center justify-center">
+              <div className="text-center">
+                <p className="text-lg font-medium text-slate-700 dark:text-slate-200 mb-4">No projects yet</p>
+                <button
+                  onClick={createNew}
+                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+                >
+                  Create {appMode === "discovery" ? "Discovery" : "Design"} Project
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {renderProjectSetupModal()}
@@ -11190,7 +11196,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
   const showSidebarToggle = !sidebarOpen;
   const showSidebar = sidebarOpen;
 
-  const renderAboutPage = () => {
+  function renderAboutPage() {
     return (
       <div className="max-w-3xl mx-auto px-6 py-8">
         <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-6">About</h1>
@@ -11443,7 +11449,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
         </div>
       </div>
     );
-  };
+  }
 
   const renderSection = () => {
     if (!active) return null;
