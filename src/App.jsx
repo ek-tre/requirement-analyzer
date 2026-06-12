@@ -9281,7 +9281,11 @@ Be concise and actionable. Respond in the same language the user writes in.`;
 
     return (
       <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={resetProjectSetupWizard}>
-        <div className={`w-full ${modalWidthClass} bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700`} onClick={(e) => e.stopPropagation()}>
+        <form
+          className={`w-full ${modalWidthClass} bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700`}
+          onClick={(e) => e.stopPropagation()}
+          onSubmit={(e) => { e.preventDefault(); confirmDiscoveryProjectSetup(); }}
+        >
           <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-700">
             <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Set up Discovery Project</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Step {projectSetupStep} of 4</p>
@@ -9304,40 +9308,37 @@ Be concise and actionable. Respond in the same language the user writes in.`;
 
             {projectSetupStep === 2 && (
               <>
-                <label className="flex items-start gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    checked={projectSetupMode === "link"}
-                    onChange={() => setProjectSetupMode("link")}
-                    className="mt-0.5"
-                  />
-                  <span>
-                    <span className="block text-sm font-medium text-slate-700 dark:text-slate-200">Link existing folder</span>
-                    <span className="block text-xs text-slate-500 dark:text-slate-400">Use existing Research Data.</span>
-                  </span>
-                </label>
+                {availableResearchFolders.length > 0 && (
+                  <>
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={projectSetupMode === "link"}
+                        onChange={() => setProjectSetupMode("link")}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="block text-sm font-medium text-slate-700 dark:text-slate-200">Link existing folder</span>
+                        <span className="block text-xs text-slate-500 dark:text-slate-400">Use existing Research Data.</span>
+                      </span>
+                    </label>
 
-                <div className="pl-6">
-                  <select
-                    value={projectSetupFolderId}
-                    onChange={(e) => setProjectSetupFolderId(e.target.value)}
-                    disabled={projectSetupMode !== "link" || availableResearchFolders.length === 0}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 disabled:opacity-60"
-                  >
-                    {availableResearchFolders.length === 0 ? (
-                      <option value="">No folders available</option>
-                    ) : (
-                      availableResearchFolders.map((folder) => (
-                        <option key={folder.id} value={folder.id}>{folder.name}</option>
-                      ))
-                    )}
-                  </select>
-                  {availableResearchFolders.length === 0 && (
-                    <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">No existing folders found. Choose "Create new folder" to continue.</p>
-                  )}
-                </div>
+                    <div className="pl-6">
+                      <select
+                        value={projectSetupFolderId}
+                        onChange={(e) => setProjectSetupFolderId(e.target.value)}
+                        disabled={projectSetupMode !== "link"}
+                        className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 disabled:opacity-60"
+                      >
+                        {availableResearchFolders.map((folder) => (
+                          <option key={folder.id} value={folder.id}>{folder.name}</option>
+                        ))}
+                      </select>
+                    </div>
 
-                <div className="pt-2" />
+                    <div className="pt-2" />
+                  </>
+                )}
 
                 <label className="flex items-start gap-2 cursor-pointer">
                   <input
@@ -9410,9 +9411,11 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                           type="button"
                           onClick={() => removeProjectSetupUpload(doc.id)}
                           aria-label="Remove document"
-                          className="px-2 py-1 text-xs border border-rose-300 dark:border-rose-700 rounded text-rose-600 dark:text-rose-300"
+                          className="p-1 rounded text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
                         >
-                          X
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                          </svg>
                         </button>
                       </div>
                     ))}
@@ -9456,6 +9459,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
 
           <div className="px-5 py-4 border-t border-slate-100 dark:border-slate-700 flex items-center justify-end gap-2">
             <button
+              type="button"
               onClick={resetProjectSetupWizard}
               className="px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded text-slate-600 dark:text-slate-300"
             >
@@ -9463,6 +9467,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
             </button>
             {projectSetupStep > 1 && (
               <button
+                type="button"
                 onClick={() => setProjectSetupStep((prev) => Math.max(1, prev - 1))}
                 className="px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded text-slate-600 dark:text-slate-300"
               >
@@ -9470,7 +9475,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
               </button>
             )}
             <button
-              onClick={confirmDiscoveryProjectSetup}
+              type="submit"
               disabled={
                 projectSetupSubmitting
                 || (projectSetupStep === 1 && !String(projectSetupName || "").trim())
@@ -9482,7 +9487,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
               {projectSetupStep < 4 ? "Next" : (projectSetupSubmitting ? "Creating..." : "Create project")}
             </button>
           </div>
-        </div>
+        </form>
       </div>
     );
   };
