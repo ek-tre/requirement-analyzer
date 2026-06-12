@@ -9289,14 +9289,14 @@ Be concise and actionable. Respond in the same language the user writes in.`;
 
           <div className="px-5 py-4 space-y-4 max-h-[65vh] overflow-y-auto">
             {projectSetupStep === 1 && (
-              <div className="max-w-2xl">
+              <div>
                 <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1.5">Project name</label>
                 <input
                   type="text"
                   value={projectSetupName}
                   onChange={(e) => setProjectSetupName(e.target.value)}
                   placeholder="e.g., Mobile App Redesign"
-                  className="w-full max-w-[21rem] px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   autoFocus
                 />
               </div>
@@ -9429,14 +9429,14 @@ Be concise and actionable. Respond in the same language the user writes in.`;
 
             {projectSetupStep === 4 && (
               <>
-                <div className="max-w-2xl">
+                <div>
                   <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1.5">Initial outcome</label>
                   <input
                     type="text"
                     value={projectSetupOutcomeName}
                     onChange={(e) => setProjectSetupOutcomeName(e.target.value)}
                     placeholder="e.g. Reduce time on site for admins"
-                    className="w-full max-w-[21rem] px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     autoFocus
                   />
                 </div>
