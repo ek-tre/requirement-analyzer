@@ -11207,7 +11207,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
           {aboutSubpage === "about" && (
             <>
               {/* Analysis Accordion */}
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
                 <button
                   onClick={() => toggleAboutSection("analysis")}
                   className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
@@ -11217,7 +11217,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                   <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.analysis ? "−" : "+"}</span>
                 </button>
                 {aboutExpandedSections.analysis && (
-                  <div className="px-4 py-4 space-y-5 border-t border-slate-100 dark:border-slate-700">
+                  <div className="px-4 py-4 space-y-5 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
                     <p className="text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wide font-semibold">Pipeline overview</p>
                     <div className="space-y-4">
                       <div className="flex gap-3">
@@ -11278,7 +11278,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
               </div>
 
               {/* Data Accordion */}
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
                 <button
                   onClick={() => toggleAboutSection("data")}
                   className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
@@ -11288,7 +11288,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                   <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.data ? "−" : "+"}</span>
                 </button>
                 {aboutExpandedSections.data && (
-                  <div className="px-4 py-4 space-y-4 border-t border-slate-100 dark:border-slate-700">
+                  <div className="px-4 py-4 space-y-4 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
                     <div>
                       <p className="font-medium text-slate-700 dark:text-slate-200">How storage works today</p>
                       <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-500 dark:text-slate-400">
@@ -11318,7 +11318,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
           {aboutSubpage === "potential" && (
             <>
               {/* Potential Data */}
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
                 <button
                   onClick={() => toggleAboutSection("potentialData")}
                   className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
@@ -11328,7 +11328,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                   <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialData ? "−" : "+"}</span>
                 </button>
                 {aboutExpandedSections.potentialData && (
-                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700">
+                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
                     <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
                       <li>Persist all document-related data in the same primary persistence layer instead of split local-only paths.</li>
                       <li>Add versioned local backups instead of relying on a single overwrite key.</li>
@@ -11339,7 +11339,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
               </div>
 
               {/* Potential Reliability */}
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
                 <button
                   onClick={() => toggleAboutSection("potentialReliability")}
                   className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
@@ -11349,7 +11349,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                   <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialReliability ? "−" : "+"}</span>
                 </button>
                 {aboutExpandedSections.potentialReliability && (
-                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700">
+                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
                     <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
                       <li>Add a rolling snapshot restore option for accidental overwrites.</li>
                       <li>Add soft delete and undo for project deletion.</li>
@@ -11360,7 +11360,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
               </div>
 
               {/* Potential UX */}
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
                 <button
                   onClick={() => toggleAboutSection("potentialUx")}
                   className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
@@ -11370,7 +11370,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                   <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialUx ? "−" : "+"}</span>
                 </button>
                 {aboutExpandedSections.potentialUx && (
-                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700">
+                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
                     <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
                       <li>Show visible save health status: last local save, last server sync, and sync errors.</li>
                       <li>Warn users proactively in private mode and near storage quota limits.</li>
@@ -11381,7 +11381,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
               </div>
 
               {/* Potential Consistency */}
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
                 <button
                   onClick={() => toggleAboutSection("potentialConsistency")}
                   className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
@@ -11391,7 +11391,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                   <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialConsistency ? "−" : "+"}</span>
                 </button>
                 {aboutExpandedSections.potentialConsistency && (
-                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700">
+                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
                     <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
                       <li>Add conflict handling for concurrent edits across multiple clients.</li>
                       <li>Add cross-tab coordination so multiple open tabs do not silently overwrite each other.</li>
@@ -11572,13 +11572,6 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
                     </svg>
                   )}
-                </button>
-                <button
-                  onClick={openAboutPage}
-                  className="px-3 py-2 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors text-sm"
-                  title="About this tool"
-                >
-                  About
                 </button>
               </div>
             </div>
