@@ -7971,14 +7971,15 @@ export default function RequirementAnalyzer() {
   const [showExport, setShowExport] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
-  const [aboutSubpage, setAboutSubpage] = useState("about");
+  const [aboutSubpage, setAboutSubpage] = useState("general");
   const [aboutExpandedSections, setAboutExpandedSections] = useState({
-    analysis: false,
-    data: false,
-    potentialData: false,
-    potentialReliability: false,
-    potentialUx: false,
-    potentialConsistency: false,
+    generalOverview: false,
+    generalData: false,
+    generalOperations: false,
+    discoveryFlow: false,
+    discoveryModel: false,
+    designWorkflow: false,
+    designExport: false,
   });
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [githubTokenModalOpen, setGithubTokenModalOpen] = useState(false);
@@ -8053,14 +8054,15 @@ export default function RequirementAnalyzer() {
 
   const openAboutPage = useCallback(() => {
     setActiveSection("about");
-    setAboutSubpage("about");
+    setAboutSubpage("general");
     setAboutExpandedSections({
-      analysis: false,
-      data: false,
-      potentialData: false,
-      potentialReliability: false,
-      potentialUx: false,
-      potentialConsistency: false,
+      generalOverview: false,
+      generalData: false,
+      generalOperations: false,
+      discoveryFlow: false,
+      discoveryModel: false,
+      designWorkflow: false,
+      designExport: false,
     });
   }, []);
 
@@ -11181,97 +11183,71 @@ Be concise and actionable. Respond in the same language the user writes in.`;
         {/* Subpage Tabs */}
         <div className="flex gap-2 mb-6 border-b border-slate-200 dark:border-slate-700">
           <button
-            onClick={() => setAboutSubpage("about")}
+            onClick={() => setAboutSubpage("general")}
             className={`px-4 py-3 border-b-2 transition-colors ${
-              aboutSubpage === "about"
+              aboutSubpage === "general"
                 ? "border-indigo-600 dark:border-indigo-500 text-indigo-600 dark:text-indigo-500 font-medium"
                 : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
             }`}
           >
-            About
+            General
           </button>
           <button
-            onClick={() => setAboutSubpage("potential")}
+            onClick={() => setAboutSubpage("discovery")}
             className={`px-4 py-3 border-b-2 transition-colors ${
-              aboutSubpage === "potential"
+              aboutSubpage === "discovery"
                 ? "border-indigo-600 dark:border-indigo-500 text-indigo-600 dark:text-indigo-500 font-medium"
                 : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
             }`}
           >
-            Potential Improvements
+            Discovery
+          </button>
+          <button
+            onClick={() => setAboutSubpage("designSpec")}
+            className={`px-4 py-3 border-b-2 transition-colors ${
+              aboutSubpage === "designSpec"
+                ? "border-indigo-600 dark:border-indigo-500 text-indigo-600 dark:text-indigo-500 font-medium"
+                : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
+            }`}
+          >
+            Design Spec
           </button>
         </div>
 
         {/* Content */}
         <div className="space-y-4 text-sm text-slate-600 dark:text-slate-300">
-          {aboutSubpage === "about" && (
+          {aboutSubpage === "general" && (
             <>
-              {/* Analysis Accordion */}
+              {/* General Overview */}
               <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
                 <button
-                  onClick={() => toggleAboutSection("analysis")}
+                  onClick={() => toggleAboutSection("generalOverview")}
                   className="w-full px-4 py-3 flex items-center justify-between bg-white dark:bg-slate-700/40 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                  aria-expanded={aboutExpandedSections.analysis}
+                  aria-expanded={aboutExpandedSections.generalOverview}
                 >
-                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Analysis</span>
-                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.analysis ? "−" : "+"}</span>
+                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">What this tool covers</span>
+                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.generalOverview ? "−" : "+"}</span>
                 </button>
-                {aboutExpandedSections.analysis && (
+                {aboutExpandedSections.generalOverview && (
                   <div className="px-4 py-4 space-y-5 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
-                    <p className="text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wide font-semibold">Pipeline overview</p>
-                    <div className="space-y-4">
-                      <div className="flex gap-3">
-                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">1</span>
-                        <div>
-                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Pre-flight validation</p>
-                          <p className="text-slate-500 dark:text-slate-400">Before any API call, the outcome is checked for minimum length, a measurable action verb, and domain context. At least one meaningful token in the outcome must overlap with the research corpus. This gate prevents empty-evidence runs.</p>
-                        </div>
+                    <p className="text-slate-500 dark:text-slate-400">This application supports two related workflows: Discovery for research-backed opportunity analysis and Design Spec for structured requirement planning and export. Both modes share project state, security mode, language settings, and persistence infrastructure, but they use different data shapes and UI navigation patterns.</p>
+                    <div className="space-y-3">
+                      <div>
+                        <p className="font-medium text-slate-700 dark:text-slate-200 mb-1">Discovery mode</p>
+                        <p className="text-slate-500 dark:text-slate-400">Discovery is organized around outcomes, research documents, a discovery table, and an opportunity solution tree. AI features in this mode depend on linked research evidence and a GitHub AI token.</p>
                       </div>
-                      <div className="flex gap-3">
-                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">2</span>
-                        <div>
-                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Chunk extraction</p>
-                          <p className="text-slate-500 dark:text-slate-400">Each linked research document is split into natural paragraphs. When a document has fewer than 3 paragraphs, it falls back to 120-word sliding windows. A typical set of 3 interview transcripts produces 40-80 chunks.</p>
-                        </div>
+                      <div>
+                        <p className="font-medium text-slate-700 dark:text-slate-200 mb-1">Design Spec mode</p>
+                        <p className="text-slate-500 dark:text-slate-400">Design Spec is a structured planning workspace for overview, problem framing, assumptions, scope, references, and delivery output. It includes a summary/export model used to generate markdown briefs for AI or document handoff.</p>
                       </div>
-                      <div className="flex gap-3">
-                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">3</span>
-                        <div>
-                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Relevance scoring: semantic then keyword</p>
-                          <p className="text-slate-500 dark:text-slate-400">All chunks plus the outcome are sent in a single batch to <span className="font-mono text-xs bg-slate-100 dark:bg-slate-700 px-1 rounded">text-embedding-3-small</span>. Each chunk is scored by cosine similarity against the outcome vector. If the embeddings call fails, the system falls back to keyword overlap scoring (token overlap divided by square root of chunk length), using the same tokenizer used elsewhere in the app.</p>
-                        </div>
+                      <div>
+                        <p className="font-medium text-slate-700 dark:text-slate-200 mb-1">What a new maintainer should know first</p>
+                        <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
+                          <li>The app is primarily driven by a large stateful container in <span className="font-mono text-xs bg-slate-100 dark:bg-slate-700 px-1 rounded">App.jsx</span>.</li>
+                          <li>Project data persists through both browser storage and the projects API, with optional GitHub backup/sync.</li>
+                          <li>Discovery research documents are stored separately from the main project payload and have different durability characteristics.</li>
+                        </ul>
                       </div>
-                      <div className="flex gap-3">
-                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">4</span>
-                        <div>
-                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Context packing</p>
-                          <p className="text-slate-500 dark:text-slate-400">Chunks are sorted by score descending. The highest-scoring chunks are packed into a 6,000-character budget in relevance order. Lower-scoring chunks are discarded before the LLM sees them.</p>
-                        </div>
-                      </div>
-                      <div className="flex gap-3">
-                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">5</span>
-                        <div>
-                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Grounded generation</p>
-                          <p className="text-slate-500 dark:text-slate-400">The selected chunks are passed to GPT-4o as the only evidence section. The prompt treats the outcome as a fixed question and returns an empty list if evidence is insufficient, which reduces hallucinated opportunities.</p>
-                        </div>
-                      </div>
-                      <div className="flex gap-3">
-                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">6</span>
-                        <div>
-                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Post-generation validation</p>
-                          <p className="text-slate-500 dark:text-slate-400">Each AI-generated opportunity is filtered. Vague statements are rejected, near-restatements of the outcome are dropped, and remaining opportunities must overlap with research evidence.</p>
-                        </div>
-                      </div>
-                      <div className="flex gap-3">
-                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">7</span>
-                        <div>
-                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Ranking pass</p>
-                          <p className="text-slate-500 dark:text-slate-400">A second GPT-4o call ranks surviving opportunities by strategic priority (user impact, business value, feasibility) and writes back to the Research Priority column. This is optional and failure does not block results.</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
-                      <p className="text-xs text-slate-400 dark:text-slate-500">Token usage: about 5k tokens per re-analysis run (embedding batch). GPT-4o calls are counted separately against your GitHub Copilot allowance.</p>
                     </div>
                   </div>
                 )}
@@ -11280,33 +11256,62 @@ Be concise and actionable. Respond in the same language the user writes in.`;
               {/* Data Accordion */}
               <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
                 <button
-                  onClick={() => toggleAboutSection("data")}
+                  onClick={() => toggleAboutSection("generalData")}
                   className="w-full px-4 py-3 flex items-center justify-between bg-white dark:bg-slate-700/40 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                  aria-expanded={aboutExpandedSections.data}
+                  aria-expanded={aboutExpandedSections.generalData}
                 >
-                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Data</span>
-                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.data ? "−" : "+"}</span>
+                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Data, storage, and recovery</span>
+                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.generalData ? "−" : "+"}</span>
                 </button>
-                {aboutExpandedSections.data && (
+                {aboutExpandedSections.generalData && (
                   <div className="px-4 py-4 space-y-4 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
                     <div>
                       <p className="font-medium text-slate-700 dark:text-slate-200">How storage works today</p>
                       <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-500 dark:text-slate-400">
-                        <li>Edits are auto-saved in browser local storage for fast local persistence.</li>
-                        <li>If any analysis uses secure mode, analysis payloads are stored encrypted in local storage.</li>
-                        <li>The app also syncs projects to the server via the projects API and uses local data as fallback when server loading fails.</li>
-                        <li>GitHub Gist sync is manual snapshot backup and restore, not live collaboration sync.</li>
+                        <li>Projects are loaded from <span className="font-mono text-xs bg-slate-100 dark:bg-slate-700 px-1 rounded">/api/projects</span> when available and fall back to browser storage when server loading fails.</li>
+                        <li>Edits are auto-saved locally; if any project uses secure mode, analysis payloads are stored encrypted in local storage.</li>
+                        <li>Optional GitHub sync is snapshot-style backup/version history, not real-time collaboration.</li>
+                        <li>Research documents are stored separately in browser storage and are not part of the main server-backed project payload.</li>
                       </ul>
                     </div>
                     <div>
-                      <p className="font-medium text-slate-700 dark:text-slate-200">Why data might disappear</p>
+                      <p className="font-medium text-slate-700 dark:text-slate-200">Operational caveats</p>
                       <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-500 dark:text-slate-400">
-                        <li>Browser/site data is cleared by user action, policy, or privacy tooling.</li>
-                        <li>Private or incognito sessions end and discard local storage.</li>
-                        <li>The app is opened from a different browser profile, device, or origin.</li>
-                        <li>Corrupted or unreadable local entries are ignored or removed during recovery.</li>
-                        <li>A project was manually deleted.</li>
-                        <li>The server is unavailable and there is no valid local fallback copy.</li>
+                        <li>Browser/site data can be cleared by user action, policy, privacy tooling, or incognito session teardown.</li>
+                        <li>Server payloads are stored as JSON without strong schema validation, so malformed client-side data can be accepted unless guarded in the UI.</li>
+                        <li>Research documents have weaker backup coverage than projects and are easier to lose during browser cleanup or profile changes.</li>
+                        <li>Secure mode protects local storage behavior but does not change the separate research-document storage path.</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Operations Accordion */}
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
+                <button
+                  onClick={() => toggleAboutSection("generalOperations")}
+                  className="w-full px-4 py-3 flex items-center justify-between bg-white dark:bg-slate-700/40 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                  aria-expanded={aboutExpandedSections.generalOperations}
+                >
+                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Security, sync, and handoff notes</span>
+                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.generalOperations ? "−" : "+"}</span>
+                </button>
+                {aboutExpandedSections.generalOperations && (
+                  <div className="px-4 py-4 space-y-4 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
+                    <div>
+                      <p className="font-medium text-slate-700 dark:text-slate-200">Security model</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-500 dark:text-slate-400">
+                        <li>Secure mode disables external AI and cloud-sync style features for that workflow and switches local persistence to encrypted storage.</li>
+                        <li>External integrations include the projects API, GitHub sync, GitHub AI-backed analysis, and design/reference embeds.</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-700 dark:text-slate-200">Best places to start as a maintainer</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-500 dark:text-slate-400">
+                        <li><span className="font-mono text-xs bg-slate-100 dark:bg-slate-700 px-1 rounded">src/App.jsx</span> owns most UI state, mode switching, and About content.</li>
+                        <li><span className="font-mono text-xs bg-slate-100 dark:bg-slate-700 px-1 rounded">api/projects.js</span> owns server persistence and sanitization.</li>
+                        <li><span className="font-mono text-xs bg-slate-100 dark:bg-slate-700 px-1 rounded">src/githubSync.js</span> owns snapshot backup/version history behavior.</li>
                       </ul>
                     </div>
                   </div>
@@ -11315,92 +11320,160 @@ Be concise and actionable. Respond in the same language the user writes in.`;
             </>
           )}
 
-          {aboutSubpage === "potential" && (
+          {aboutSubpage === "discovery" && (
             <>
-              {/* Potential Data */}
+              {/* Discovery Flow */}
               <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
                 <button
-                  onClick={() => toggleAboutSection("potentialData")}
+                  onClick={() => toggleAboutSection("discoveryFlow")}
                   className="w-full px-4 py-3 flex items-center justify-between bg-white dark:bg-slate-700/40 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                  aria-expanded={aboutExpandedSections.potentialData}
+                  aria-expanded={aboutExpandedSections.discoveryFlow}
                 >
-                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Data</span>
-                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialData ? "−" : "+"}</span>
+                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Research analysis pipeline</span>
+                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.discoveryFlow ? "−" : "+"}</span>
                 </button>
-                {aboutExpandedSections.potentialData && (
-                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
-                    <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
-                      <li>Persist all document-related data in the same primary persistence layer instead of split local-only paths.</li>
-                      <li>Add versioned local backups instead of relying on a single overwrite key.</li>
-                      <li>Do not hard-delete unreadable encrypted blobs immediately; quarantine first and offer recovery/export options.</li>
-                    </ul>
+                {aboutExpandedSections.discoveryFlow && (
+                  <div className="px-4 py-4 space-y-5 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
+                    <p className="text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wide font-semibold">Pipeline overview</p>
+                    <div className="space-y-4">
+                      <div className="flex gap-3">
+                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">1</span>
+                        <div>
+                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Pre-flight validation</p>
+                          <p className="text-slate-500 dark:text-slate-400">Before AI calls run, the selected outcome is checked for minimum quality, domain context, and overlap with the research corpus.</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">2</span>
+                        <div>
+                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Chunk extraction and scoring</p>
+                          <p className="text-slate-500 dark:text-slate-400">Linked research documents are split into paragraphs or fallback windows, then ranked by semantic similarity to the outcome with keyword fallback when embeddings are unavailable.</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">3</span>
+                        <div>
+                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Grounded generation and filtering</p>
+                          <p className="text-slate-500 dark:text-slate-400">Only the highest-scoring evidence chunks are passed into GPT-4o. Returned opportunities are filtered to reject generic output, restatements of the outcome, and weak evidence overlap.</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs flex items-center justify-center font-medium">4</span>
+                        <div>
+                          <p className="font-medium text-slate-700 dark:text-slate-200 mb-0.5">Ranking pass</p>
+                          <p className="text-slate-500 dark:text-slate-400">A second model call can rank surviving opportunities into the research-priority column. This step is optional and does not block results if it fails.</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
+                      <p className="text-xs text-slate-400 dark:text-slate-500">Token usage is roughly 5k for the embedding batch during re-analysis. GPT calls are separate and depend on your configured GitHub AI access.</p>
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* Potential Reliability */}
+              {/* Discovery Model */}
               <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
                 <button
-                  onClick={() => toggleAboutSection("potentialReliability")}
+                  onClick={() => toggleAboutSection("discoveryModel")}
                   className="w-full px-4 py-3 flex items-center justify-between bg-white dark:bg-slate-700/40 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                  aria-expanded={aboutExpandedSections.potentialReliability}
+                  aria-expanded={aboutExpandedSections.discoveryModel}
                 >
-                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Reliability and recovery</span>
-                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialReliability ? "−" : "+"}</span>
+                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Outcome, research, and data model notes</span>
+                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.discoveryModel ? "−" : "+"}</span>
                 </button>
-                {aboutExpandedSections.potentialReliability && (
-                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
-                    <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
-                      <li>Add a rolling snapshot restore option for accidental overwrites.</li>
-                      <li>Add soft delete and undo for project deletion.</li>
-                      <li>Add health checks for local save integrity and restore paths.</li>
-                    </ul>
+                {aboutExpandedSections.discoveryModel && (
+                  <div className="px-4 py-4 space-y-4 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
+                    <div>
+                      <p className="font-medium text-slate-700 dark:text-slate-200">Outcome-centered structure</p>
+                      <p className="text-slate-500 dark:text-slate-400 mt-1">Each discovery project can contain multiple outcomes. An outcome owns its own discovery table and opportunity tree, and the active outcome drives which research context is used by AI operations.</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-700 dark:text-slate-200">Research documents</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-500 dark:text-slate-400">
+                        <li>Research documents are local-first records linked to opportunities or outcomes and are not stored in the same backend path as the main project object.</li>
+                        <li>This means browser cleanup can remove the source evidence while project metadata still exists.</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-700 dark:text-slate-200">Maintenance risks</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-500 dark:text-slate-400">
+                        <li>Changes to opportunity naming, row IDs, or deduplication rules can break OST sync and AI queue handling.</li>
+                        <li>Discovery behavior depends on both AI availability and evidence quality, so failures are often environmental rather than rendering bugs.</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {aboutSubpage === "designSpec" && (
+            <>
+              {/* Design Workflow */}
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
+                <button
+                  onClick={() => toggleAboutSection("designWorkflow")}
+                  className="w-full px-4 py-3 flex items-center justify-between bg-white dark:bg-slate-700/40 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                  aria-expanded={aboutExpandedSections.designWorkflow}
+                >
+                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Workflow and section model</span>
+                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.designWorkflow ? "−" : "+"}</span>
+                </button>
+                {aboutExpandedSections.designWorkflow && (
+                  <div className="px-4 py-4 space-y-4 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
+                    <div>
+                      <p className="font-medium text-slate-700 dark:text-slate-200">Purpose</p>
+                      <p className="text-slate-500 dark:text-slate-400 mt-1">Design Spec mode is the structured requirement-planning workspace. It captures overview, problem framing, context, assumptions, edge cases, scope, questions, acceptance criteria, references, design details, notes, and delivery summary.</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-700 dark:text-slate-200">Navigation model</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-500 dark:text-slate-400">
+                        <li>Sections are grouped into higher-level navigation clusters such as Essentials, Research, References, Structure, and Delivery.</li>
+                        <li>The active section is stored globally, so changes to section IDs affect navigation, saved state, and export behavior.</li>
+                        <li>Task language changes labels and section titles per project, while the outer application chrome stays consistent.</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-700 dark:text-slate-200">Maintenance notes</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-500 dark:text-slate-400">
+                        <li>Most design-spec fields live on the main analysis object, so renaming a section key can affect UI rendering, import/export, token estimates, and defaults.</li>
+                        <li>References, code links, and design metadata are all treated as first-class parts of the analysis object, not sidecar records.</li>
+                      </ul>
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* Potential UX */}
+              {/* Design Export */}
               <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
                 <button
-                  onClick={() => toggleAboutSection("potentialUx")}
+                  onClick={() => toggleAboutSection("designExport")}
                   className="w-full px-4 py-3 flex items-center justify-between bg-white dark:bg-slate-700/40 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                  aria-expanded={aboutExpandedSections.potentialUx}
+                  aria-expanded={aboutExpandedSections.designExport}
                 >
-                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">UX and transparency</span>
-                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialUx ? "−" : "+"}</span>
+                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Export, summary state, and handoff</span>
+                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.designExport ? "−" : "+"}</span>
                 </button>
-                {aboutExpandedSections.potentialUx && (
-                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
+                {aboutExpandedSections.designExport && (
+                  <div className="px-4 py-4 space-y-4 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
                     <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
-                      <li>Show visible save health status: last local save, last server sync, and sync errors.</li>
-                      <li>Warn users proactively in private mode and near storage quota limits.</li>
-                      <li>Clarify when backup actions are snapshots versus live sync.</li>
+                      <li>The export UI depends on <span className="font-mono text-xs bg-slate-100 dark:bg-slate-700 px-1 rounded">active.summary.includedSections</span>, which controls which analysis sections are included in the output.</li>
+                      <li>Export can produce a single file or grouped multi-file output. Section lists, file groups, and token estimates must stay aligned when adding or removing sections.</li>
+                      <li>Markdown import/export and share-active-task are separate handoff paths with different goals: export is document-oriented, while share-active-task creates a transportable task copy.</li>
+                      <li>If you change summary keys or section identifiers, update the export logic, selection grid, and any token estimation helpers together.</li>
                     </ul>
+                    <div>
+                      <p className="font-medium text-slate-700 dark:text-slate-200">Suggested developer reading order</p>
+                      <ol className="list-decimal pl-5 mt-1 space-y-1 text-slate-500 dark:text-slate-400">
+                        <li>Read the design-mode section definitions and render switch in <span className="font-mono text-xs bg-slate-100 dark:bg-slate-700 px-1 rounded">App.jsx</span>.</li>
+                        <li>Review summary/export coupling before changing section labels or adding new fields.</li>
+                        <li>Check import/export and share behavior if changing the shape of the analysis object.</li>
+                      </ol>
+                    </div>
                   </div>
                 )}
               </div>
-
-              {/* Potential Consistency */}
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
-                <button
-                  onClick={() => toggleAboutSection("potentialConsistency")}
-                  className="w-full px-4 py-3 flex items-center justify-between bg-white dark:bg-slate-700/40 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                  aria-expanded={aboutExpandedSections.potentialConsistency}
-                >
-                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Consistency and concurrency</span>
-                  <span className="text-slate-400 dark:text-slate-500">{aboutExpandedSections.potentialConsistency ? "−" : "+"}</span>
-                </button>
-                {aboutExpandedSections.potentialConsistency && (
-                  <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
-                    <ul className="list-disc pl-5 space-y-1 text-slate-500 dark:text-slate-400">
-                      <li>Add conflict handling for concurrent edits across multiple clients.</li>
-                      <li>Add cross-tab coordination so multiple open tabs do not silently overwrite each other.</li>
-                      <li>Consider revision IDs or optimistic concurrency checks on save.</li>
-                    </ul>
-                  </div>
-                )}
-              </div>
-
             </>
           )}
         </div>
