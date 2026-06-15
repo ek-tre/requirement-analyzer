@@ -7970,7 +7970,6 @@ export default function RequirementAnalyzer() {
   const [pendingResearchDocumentId, setPendingResearchDocumentId] = useState(null);
   const [showExport, setShowExport] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
   const [aboutSubpage, setAboutSubpage] = useState("about");
   const [aboutExpandedSections, setAboutExpandedSections] = useState({
@@ -7998,7 +7997,6 @@ export default function RequirementAnalyzer() {
   const [githubRepoExpanded, setGithubRepoExpanded] = useState(false);
   const [githubSyncStatus, setGithubSyncStatus] = useState(null);
   const githubSyncRef = useRef(null);
-  const actionsMenuRef = useRef(null);
   const [audioModalOpen, setAudioModalOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState("");
@@ -8083,29 +8081,6 @@ export default function RequirementAnalyzer() {
     const timeout = setTimeout(() => setOutcomeCreateNotice(""), 6000);
     return () => clearTimeout(timeout);
   }, [outcomeCreateNotice]);
-
-  useEffect(() => {
-    if (!actionsMenuOpen) return;
-
-    const handleClickOutside = (event) => {
-      if (actionsMenuRef.current && !actionsMenuRef.current.contains(event.target)) {
-        setActionsMenuOpen(false);
-      }
-    };
-
-    const handleEscape = (event) => {
-      if (event.key === "Escape") {
-        setActionsMenuOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleEscape);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleEscape);
-    };
-  }, [actionsMenuOpen]);
 
   const closeOutcomeWizard = useCallback(() => {
     setOutcomeWizardOpen(false);
@@ -11605,31 +11580,6 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                 >
                   About
                 </button>
-                <div className="relative" ref={actionsMenuRef}>
-                  <button
-                    onClick={() => setActionsMenuOpen((prev) => !prev)}
-                    className="px-3 py-2 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-lg hover:border-slate-300 dark:hover:border-slate-500 transition-colors text-sm font-medium"
-                    title="Open actions"
-                    aria-haspopup="menu"
-                    aria-expanded={actionsMenuOpen}
-                  >
-                    Actions
-                  </button>
-                  {actionsMenuOpen && (
-                    <div className="absolute right-0 mt-2 w-52 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg z-30 py-1">
-                      <button
-                        onClick={() => {
-                          setExportModalOpen(true);
-                          setActionsMenuOpen(false);
-                        }}
-                        className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                        role="menuitem"
-                      >
-                        Export to markdown
-                      </button>
-                    </div>
-                  )}
-                </div>
               </div>
             </div>
             <div className="flex flex-col gap-4 pt-1">
@@ -11652,6 +11602,17 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                     )}
                   </button>
                 ))}
+                <button
+                  onClick={() => setExportModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-slate-200 dark:border-slate-600 bg-transparent text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:border-slate-400 dark:hover:border-slate-400 transition-colors"
+                  title="Export to markdown"
+                  aria-label="Export to markdown"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 16V4m0 12l-4-4m4 4l4-4M4 20h16" />
+                  </svg>
+                  Export
+                </button>
               </div>
 
               <div className="flex gap-5 flex-wrap items-end">
