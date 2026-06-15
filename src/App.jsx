@@ -27,6 +27,11 @@ import OSTCanvas from "./OSTCanvas.jsx";
 import DocumentsSection from "./DocumentsSection.jsx";
 import FeedbackSection from "./FeedbackSection.jsx";
 import GitHubSync, { HybridStorage } from "./githubSync.js";
+import {
+  createDiscoveryRowFromCandidate as buildDiscoveryRowFromCandidate,
+  normalizeDiscoveryOpportunityItem,
+  normalizeImpactValue,
+} from "./discoveryAnalysis.js";
 
 // --- Encryption Utilities for Secure localStorage ---
 // Uses Web Crypto API to encrypt sensitive data at rest
@@ -244,9 +249,15 @@ Rules:
 - Opportunities must be specific user needs or friction points, not solutions.
 - Do NOT restate or paraphrase the outcome/question as an opportunity.
 - Ground every opportunity in the research evidence, even if inferred.
+- For each opportunity, fill the evidence columns with short grounded quotes or concrete findings when available.
+- Use these exact evidence keys: col_dk, col_se, col_proto, col_b2b.
+- Keep each evidence field concise: 1-2 short quotes or observations, separated by a blank line if there are two.
+- Include source names inline in parentheses when the research makes them clear.
+- Use an empty string for any evidence column that is not supported by the research.
 - If the evidence is insufficient or unclear, return []
+- Do NOT generate or populate business objectives (col_obj). Leave business context to users.
 - Return ONLY a JSON array, no other text:
-[{"name": "...", "about": "...", "impact": "High|Medium|Low", "businessObjective": "..."}]`;
+[{"name": "...", "about": "...", "impact": "High|Medium|Low", "col_dk": "...", "col_se": "...", "col_proto": "...", "col_b2b": "..."}]`;
 };
 
 const inferReferenceMarket = (reference) => {
@@ -612,22 +623,32 @@ const secureStorage = {
   
   async getItem(key) {
     try {
-      const encrypted = localStorage.getItem(key);
-      if (!encrypted) {
+      const storedValue = localStorage.getItem(key);
+      if (!storedValue) {
         console.log('[SECURE STORAGE] No data found for key:', key);
         return null;
       }
       console.log('[SECURE STORAGE] Found data for key:', key);
-      const decrypted = await decryptData(encrypted);
+
+      // Keep plaintext/local fallback entries intact.
+      if (!storedValue.startsWith(ENCRYPTED_PAYLOAD_PREFIX)) {
+        try {
+          JSON.parse(storedValue);
+          console.log('[SECURE STORAGE] Plaintext payload detected for key:', key);
+          return storedValue;
+        } catch {
+          // Legacy encrypted payloads may not have a prefix; try decrypting below.
+        }
+      }
+
+      const decrypted = await decryptData(storedValue);
       if (!decrypted) {
-        console.error('[SECURE STORAGE] Decryption returned null, clearing corrupted data');
-        localStorage.removeItem(key);
+        console.error('[SECURE STORAGE] Decryption returned null for key:', key);
         return null;
       }
       return decrypted;
     } catch (error) {
-      console.error('[SECURE STORAGE] Failed to get, clearing corrupted data:', error);
-      localStorage.removeItem(key);
+      console.error('[SECURE STORAGE] Failed to get key:', error);
       return null;
     }
   },
@@ -1409,71 +1430,7 @@ const extractOpportunityArrayFromResponse = (responseValue) => {
   return [];
 };
 
-const normalizeAIOpportunityItem = (item, index) => {
-  const pickFirstNonEmptyString = (candidateValues = []) => {
-    for (const value of candidateValues) {
-      const normalized = String(value || "").trim();
-      if (normalized) return normalized;
-    }
-    return "";
-  };
-
-  if (typeof item === "string") {
-    return {
-      name: item.trim(),
-      about: "",
-      businessObjective: "",
-      impact: "",
-      fallbackName: `Opportunity ${index + 1}`,
-    };
-  }
-
-  const name = pickFirstNonEmptyString([
-    item?.name,
-    item?.opportunity,
-    item?.opportunityName,
-    item?.title,
-    item?.need,
-    item?.painPoint,
-    item?.problem,
-  ]);
-  const about = pickFirstNonEmptyString([
-    item?.about,
-    item?.description,
-    item?.details,
-    item?.context,
-    item?.summary,
-    item?.why,
-  ]);
-  const businessObjective = pickFirstNonEmptyString([
-    item?.businessObjective,
-    item?.objective,
-    item?.goal,
-    item?.outcome,
-  ]);
-  const impactRaw = pickFirstNonEmptyString([
-    item?.impact,
-    item?.priority,
-    item?.importance,
-  ]);
-  const normalizedImpact = ["High", "Medium", "Low"].includes(impactRaw)
-    ? impactRaw
-    : ["high", "medium", "low"].includes(impactRaw.toLowerCase())
-      ? `${impactRaw.charAt(0).toUpperCase()}${impactRaw.slice(1).toLowerCase()}`
-      : "";
-
-  const fallbackName = name
-    ? ""
-    : pickFirstNonEmptyString([about, businessObjective, item?.insight]) || `Opportunity ${index + 1}`;
-
-  return {
-    name,
-    about,
-    businessObjective,
-    impact: normalizedImpact,
-    fallbackName,
-  };
-};
+const normalizeAIOpportunityItem = (item, index) => normalizeDiscoveryOpportunityItem(item, index);
 
 const buildDiscoveryRowsFromResearch = async ({ outcomeName, researchDocuments, githubAIKey }) => {
   const normalizedOutcomeName = String(outcomeName || "Desired Outcome").trim() || "Desired Outcome";
@@ -1502,7 +1459,7 @@ const buildDiscoveryRowsFromResearch = async ({ outcomeName, researchDocuments, 
   const aiResponse = await analyzeWithGitHub(aiPrompt, githubAIKey, {
     opportunities: [],
     outcome: normalizedOutcomeName,
-    systemPrompt: `${buildAnalysisSystemPrompt([], normalizedOutcomeName)}\n\nOUTPUT FORMAT RULES:\n- You generate opportunity-only outputs for Opportunity Solution Tree analysis\n- Do NOT include solutions, experiments, or recommendations\n- Return ONLY this JSON array shape and nothing else:\n-[{"name": "...", "about": "...", "impact": "High|Medium|Low", "businessObjective": "..."}]`,
+    systemPrompt: `${buildAnalysisSystemPrompt([], normalizedOutcomeName)}\n\nOUTPUT FORMAT RULES:\n- You generate opportunity-only outputs for Opportunity Solution Tree analysis\n- Do NOT include solutions, experiments, or recommendations\n- Preserve grounded evidence in these exact text fields: col_dk, col_se, col_proto, col_b2b\n- Do NOT generate or populate business objectives (col_obj)\n- Return ONLY this JSON array shape and nothing else:\n[{"name": "...", "about": "...", "impact": "High|Medium|Low", "col_dk": "...", "col_se": "...", "col_proto": "...", "col_b2b": "..."}]`,
     temperature: 0.4,
     maxTokens: 1200,
   });
@@ -1513,24 +1470,16 @@ const buildDiscoveryRowsFromResearch = async ({ outcomeName, researchDocuments, 
     .map((item, index) => normalizeAIOpportunityItem(item, index));
 
   const rows = aiOpportunities
-    .map((opp, index) => ({
-      id: generateId(),
-      cells: {
-        col_opp: String(opp.name || opp.fallbackName || `Opportunity ${index + 1}`).trim(),
-        col_about: String(opp.about || "").trim(),
-        col_impact: String(opp.impact || "").trim(),
-        col_obj: String(opp.businessObjective || "").trim(),
-        col_rprio: String(index + 1),
-        col_iprio: "",
-        col_diagram: "",
-        col_dk: "",
-        col_se: "",
-        col_proto: "",
-        col_b2b: "",
-        col_sol_team: "",
-        col_exp_team: "",
-      },
-    }))
+    .map((opp, index) => {
+      const row = buildDiscoveryRowFromCandidate(opp, generateId);
+      return {
+        ...row,
+        cells: {
+          ...row.cells,
+          col_rprio: String(index + 1),
+        },
+      };
+    })
     .filter((row) => {
       const oppText = String(row.cells?.col_opp || "").trim();
       const aboutText = String(row.cells?.col_about || "").trim();
@@ -6925,7 +6874,7 @@ Do NOT include explanations or any text besides the JSON array.`;
       const aiResponse = await analyzeWithGitHub(aiPrompt, githubAIKey, {
         opportunities: generationContextOpportunities,
         outcome: normalizedOutcomeName,
-        systemPrompt: `${buildAnalysisSystemPrompt(generationContextOpportunities, normalizedOutcomeName)}\n\nOUTPUT FORMAT RULES:\n- You generate opportunity-only outputs for Opportunity Solution Tree analysis\n- Do NOT include solutions, experiments, or recommendations\n- Return ONLY this JSON array shape and nothing else:\n[{"name": "...", "about": "...", "impact": "High|Medium|Low", "businessObjective": "..."}]`,
+        systemPrompt: `${buildAnalysisSystemPrompt(generationContextOpportunities, normalizedOutcomeName)}\n\nOUTPUT FORMAT RULES:\n- You generate opportunity-only outputs for Opportunity Solution Tree analysis\n- Do NOT include solutions, experiments, or recommendations\n- Preserve grounded evidence in these exact text fields: col_dk, col_se, col_proto, col_b2b\n- Do NOT generate or populate business objectives (col_obj)\n- Return ONLY this JSON array shape and nothing else:\n[{"name": "...", "about": "...", "impact": "High|Medium|Low", "col_dk": "...", "col_se": "...", "col_proto": "...", "col_b2b": "..."}]`,
         temperature: 0.4,
         maxTokens: 1200,
       });
@@ -6970,80 +6919,9 @@ Do NOT include explanations or any text besides the JSON array.`;
         throw new Error("AI response did not contain an opportunity array");
       }
 
-      const pickFirstNonEmptyString = (candidateValues = []) => {
-        for (const value of candidateValues) {
-          const normalized = String(value || "").trim();
-          if (normalized) return normalized;
-        }
-        return "";
-      };
-
-      const normalizeOpportunityItem = (item, index) => {
-        if (typeof item === "string") {
-          const text = item.trim();
-          return {
-            name: text,
-            about: "",
-            businessObjective: "",
-            impact: "",
-            fallbackName: `Opportunity ${index + 1}`,
-          };
-        }
-
-        const name = pickFirstNonEmptyString([
-          item?.name,
-          item?.opportunity,
-          item?.opportunityName,
-          item?.title,
-          item?.need,
-          item?.painPoint,
-          item?.problem,
-        ]);
-        const about = pickFirstNonEmptyString([
-          item?.about,
-          item?.description,
-          item?.details,
-          item?.context,
-          item?.summary,
-          item?.why,
-        ]);
-        const businessObjective = pickFirstNonEmptyString([
-          item?.businessObjective,
-          item?.objective,
-          item?.goal,
-          item?.outcome,
-        ]);
-        const impactRaw = pickFirstNonEmptyString([
-          item?.impact,
-          item?.priority,
-          item?.importance,
-        ]);
-        const normalizedImpact = ["High", "Medium", "Low"].includes(impactRaw)
-          ? impactRaw
-          : ["high", "medium", "low"].includes(impactRaw.toLowerCase())
-            ? `${impactRaw.charAt(0).toUpperCase()}${impactRaw.slice(1).toLowerCase()}`
-          : "";
-
-        const fallbackName = name
-          ? ""
-          : pickFirstNonEmptyString([
-              about,
-              businessObjective,
-              item?.insight,
-            ]) || `Opportunity ${index + 1}`;
-
-        return {
-          name,
-          about,
-          businessObjective,
-          impact: normalizedImpact,
-          fallbackName,
-        };
-      };
-
       const aiOpportunities = parsedItems
         .filter((item) => item && (typeof item === "object" || typeof item === "string"))
-        .map((item, index) => normalizeOpportunityItem(item, index));
+        .map((item, index) => normalizeDiscoveryOpportunityItem(item, index));
 
       const candidateRows = (aiOpportunities || []).map((opp) => createDiscoveryRowFromCandidate(opp));
 
@@ -7076,6 +6954,10 @@ Do NOT include explanations or any text besides the JSON array.`;
           about: String(row?.cells?.col_about || "").trim(),
           impact: String(row?.cells?.col_impact || "").trim(),
           businessObjective: String(row?.cells?.col_obj || "").trim(),
+          col_dk: String(row?.cells?.col_dk || "").trim(),
+          col_se: String(row?.cells?.col_se || "").trim(),
+          col_proto: String(row?.cells?.col_proto || "").trim(),
+          col_b2b: String(row?.cells?.col_b2b || "").trim(),
           aiProvenance: {
             source: "ai-generated",
             reviewStatus: "pending",
@@ -7186,7 +7068,7 @@ Do NOT include explanations or any text besides the JSON array.`;
       const aiResponse = await analyzeWithGitHub(enrichPrompt, githubAIKey, {
         opportunities: enrichContextOpportunities,
         outcome: normalizedOutcomeName,
-        systemPrompt: `${buildAnalysisSystemPrompt(enrichContextOpportunities, normalizedOutcomeName)}\n\nOUTPUT FORMAT RULES:\n- Analyse existing product opportunities\n- Return ONLY a JSON array with name, about, impact (High|Medium|Low), and businessObjective fields\n- No other text`,
+        systemPrompt: `${buildAnalysisSystemPrompt(enrichContextOpportunities, normalizedOutcomeName)}\n\nOUTPUT FORMAT RULES:\n- Analyse existing product opportunities\n- Return ONLY a JSON array with name, about, impact (High|Medium|Low), col_dk, col_se, col_proto, and col_b2b fields\n- Do NOT generate or populate business objectives (col_obj)\n- No other text`,
         temperature: 0.4,
         maxTokens: 2000,
       });
@@ -7199,13 +7081,17 @@ Do NOT include explanations or any text besides the JSON array.`;
         throw new Error("AI did not return enrichment data");
       }
 
+      const normalizedEnrichedItems = enrichedItems
+        .filter((item) => item && (typeof item === "object" || typeof item === "string"))
+        .map((item, index) => normalizeDiscoveryOpportunityItem(item, index));
+
       const enrichMap = new Map();
-      enrichedItems.forEach(item => {
+      normalizedEnrichedItems.forEach((item) => {
         const key = String(item?.name || "").trim().toLowerCase();
         if (key) enrichMap.set(key, item);
       });
       // Also match by position as fallback
-      enrichedItems.forEach((item, idx) => {
+      normalizedEnrichedItems.forEach((item, idx) => {
         const row = rowsToEnrich[idx];
         if (row) {
           const posKey = `__pos__${row.id}`;
@@ -7221,14 +7107,12 @@ Do NOT include explanations or any text besides the JSON array.`;
         const enriched = byName || byPos;
         if (!enriched) return row;
 
-        const impactRaw = String(enriched.impact || "").trim();
-        const normalizedImpact = ["High", "Medium", "Low"].includes(impactRaw)
-          ? impactRaw
-          : ["high", "medium", "low"].includes(impactRaw.toLowerCase())
-            ? `${impactRaw.charAt(0).toUpperCase()}${impactRaw.slice(1).toLowerCase()}`
-            : "";
+        const normalizedImpact = normalizeImpactValue(enriched.impact || "");
         const nextAbout = String(enriched.about || "").trim();
-        const nextObjective = String(enriched.businessObjective || "").trim();
+        const nextDkEvidence = String(enriched.col_dk || "").trim();
+        const nextSeEvidence = String(enriched.col_se || "").trim();
+        const nextProtoEvidence = String(enriched.col_proto || "").trim();
+        const nextB2bEvidence = String(enriched.col_b2b || "").trim();
 
         return {
           ...row,
@@ -7236,7 +7120,10 @@ Do NOT include explanations or any text besides the JSON array.`;
             ...row.cells,
             col_about: nextAbout || row.cells.col_about || "",
             col_impact: normalizedImpact || row.cells.col_impact || "",
-            col_obj: nextObjective || row.cells.col_obj || "",
+            col_dk: nextDkEvidence || row.cells.col_dk || "",
+            col_se: nextSeEvidence || row.cells.col_se || "",
+            col_proto: nextProtoEvidence || row.cells.col_proto || "",
+            col_b2b: nextB2bEvidence || row.cells.col_b2b || "",
           },
         };
       });
@@ -7432,27 +7319,7 @@ Do NOT include explanations or any text besides the JSON array.`;
     reviewStatus: "accepted",
   });
 
-  const createDiscoveryRowFromCandidate = (candidate) => ({
-    id: generateId(),
-    aiProvenance: candidate?.aiProvenance && typeof candidate.aiProvenance === "object"
-      ? { ...candidate.aiProvenance }
-      : undefined,
-    cells: {
-      col_opp: String(candidate?.name || "").trim(),
-      col_about: String(candidate?.about || "").trim(),
-      col_impact: String(candidate?.impact || "").trim(),
-      col_obj: String(candidate?.businessObjective || "").trim(),
-      col_rprio: "",
-      col_iprio: "",
-      col_diagram: "",
-      col_dk: "",
-      col_se: "",
-      col_proto: "",
-      col_b2b: "",
-      col_sol_team: "",
-      col_exp_team: "",
-    },
-  });
+  const createDiscoveryRowFromCandidate = (candidate) => buildDiscoveryRowFromCandidate(candidate, generateId);
 
   const mergeRowsByName = (candidateRows = []) => {
     const existingRows = (tableData.rows || []).filter(
@@ -8349,8 +8216,9 @@ export default function RequirementAnalyzer() {
       console.log('[LOAD] Starting data load from API...');
 
       const loadFromLocalFallback = async () => {
-        let saved = await secureStorage.getItem("requirementAnalyses");
-        if (!saved) saved = localStorage.getItem("requirementAnalyses");
+        // Prefer direct localStorage first so plaintext backups are always recoverable.
+        let saved = localStorage.getItem("requirementAnalyses");
+        if (!saved) saved = await secureStorage.getItem("requirementAnalyses");
         if (!saved) return false;
 
         const parsed = JSON.parse(saved);
@@ -8784,7 +8652,7 @@ Available columns:
 - col_sol: Solution ideas
 - col_exp: Experiment suggestions
 
-Fill in the most relevant columns based on what you know. When you suggest opportunities, always include at least col_opp and col_rprio. The rows will be added automatically - you don't need to ask the user to apply them.
+Fill in the most relevant columns based on what you know, except col_obj. Never populate col_obj (Business objectives); users provide that business context themselves. When you suggest opportunities, always include at least col_opp and col_rprio. The rows will be added automatically - you don't need to ask the user to apply them.
 
 Be concise and actionable. Respond in the same language the user writes in.`;
     } else {
@@ -11044,20 +10912,33 @@ Be concise and actionable. Respond in the same language the user writes in.`;
               {renderDiscoveryHeaderNav()}
             </div>
           ) : (
-            <ModeSwitch mode={appMode} onChange={(newMode) => {
-              setAppMode(newMode);
-              localStorage.setItem("appMode", newMode);
-              setActiveSection(newMode === "discovery" ? "opportunityTree" : "overview");
-              if (newMode === "discovery") {
-                setActiveResearchTab("documents");
-              }
-              const modeProjects = analyses.filter(a => (a.projectMode || "design-specs") === newMode);
-              if (modeProjects.length > 0) {
-                setActiveId(modeProjects[0].id);
-              } else {
-                setActiveId(null);
-              }
-            }} />
+            <div className="flex items-center gap-3">
+              <ModeSwitch mode={appMode} onChange={(newMode) => {
+                setAppMode(newMode);
+                localStorage.setItem("appMode", newMode);
+                setActiveSection(newMode === "discovery" ? "opportunityTree" : "overview");
+                if (newMode === "discovery") {
+                  setActiveResearchTab("documents");
+                }
+                const modeProjects = analyses.filter(a => (a.projectMode || "design-specs") === newMode);
+                if (modeProjects.length > 0) {
+                  setActiveId(modeProjects[0].id);
+                } else {
+                  setActiveId(null);
+                }
+              }} />
+              <button
+                onClick={openAboutPage}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border transition-colors ${
+                  activeSection === "about"
+                    ? "bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-100 border-slate-300 dark:border-slate-600 font-medium"
+                    : "bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-500"
+                }`}
+                title="About this tool"
+              >
+                About
+              </button>
+            </div>
           )}
         </div>
         <div className="flex-1 min-h-0">
@@ -11668,6 +11549,17 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                     )}
                   </button>
                 ))}
+                <button
+                  onClick={openAboutPage}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border transition-colors ${
+                    activeSection === "about"
+                      ? "bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-100 border-slate-300 dark:border-slate-600 font-medium"
+                      : "bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-500"
+                  }`}
+                  title="About this tool"
+                >
+                  About
+                </button>
                 <button
                   onClick={() => setExportModalOpen(true)}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-slate-200 dark:border-slate-600 bg-transparent text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:border-slate-400 dark:hover:border-slate-400 transition-colors"
