@@ -134,6 +134,7 @@ export const createDiscoveryRowFromCandidate = (candidate, generateId) => ({
     col_rprio: "",
     col_iprio: "",
     col_diagram: "",
+    col_created_by: trimString(candidate?.createdBy || candidate?.col_created_by || (candidate?.aiProvenance ? "AI" : "User")),
     col_dk: trimString(candidate?.col_dk),
     col_se: trimString(candidate?.col_se),
     col_proto: trimString(candidate?.col_proto),

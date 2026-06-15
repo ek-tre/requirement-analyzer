@@ -1050,27 +1050,66 @@ const countShownInDiagram = (opportunities = []) =>
   );
 
 const withDiagramColumn = (columns = []) => {
-  const safeColumns = Array.isArray(columns) ? columns : [];
-  if (safeColumns.some((column) => column?.id === "col_diagram")) {
-    return safeColumns;
+  let normalizedColumns = Array.isArray(columns) ? [...columns] : [];
+
+  if (!normalizedColumns.some((column) => column?.id === "col_created_by")) {
+    const createdByColumn = { id: "col_created_by", name: "Created by", visible: true };
+    const insertAfterOpportunity = normalizedColumns.findIndex((column) => column?.id === "col_opp");
+    if (insertAfterOpportunity === -1) {
+      normalizedColumns = [createdByColumn, ...normalizedColumns];
+    } else {
+      normalizedColumns = [
+        ...normalizedColumns.slice(0, insertAfterOpportunity + 1),
+        createdByColumn,
+        ...normalizedColumns.slice(insertAfterOpportunity + 1),
+      ];
+    }
+  }
+
+  if (normalizedColumns.some((column) => column?.id === "col_diagram")) {
+    return normalizedColumns;
   }
 
   const diagramColumn = { id: "col_diagram", name: "Diagram", visible: true };
-  const insertAfterIndex = safeColumns.findIndex((column) => column?.id === "col_iprio");
+  const insertAfterIndex = normalizedColumns.findIndex((column) => column?.id === "col_iprio");
 
   if (insertAfterIndex === -1) {
-    return [...safeColumns, diagramColumn];
+    return [...normalizedColumns, diagramColumn];
   }
 
   return [
-    ...safeColumns.slice(0, insertAfterIndex + 1),
+    ...normalizedColumns.slice(0, insertAfterIndex + 1),
     diagramColumn,
-    ...safeColumns.slice(insertAfterIndex + 1),
+    ...normalizedColumns.slice(insertAfterIndex + 1),
   ];
+};
+
+const AI_COLUMN_BADGE_IDS = new Set([
+  "col_rprio",
+  "col_about",
+  "col_impact",
+  "col_dk",
+  "col_se",
+  "col_proto",
+  "col_b2b",
+]);
+
+const normalizeCreatedByValue = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "ai") return "AI";
+  if (normalized === "user") return "User";
+  return "";
+};
+
+const getRowCreatedBy = (row) => {
+  const explicitValue = normalizeCreatedByValue(row?.cells?.col_created_by);
+  if (explicitValue) return explicitValue;
+  return row?.aiProvenance ? "AI" : "User";
 };
 
 const DEFAULT_DISCOVERY_COLUMNS = [
   { id: "col_opp", name: "Opportunity", visible: true },
+  { id: "col_created_by", name: "Created by", visible: true },
   { id: "col_diagram", name: "Diagram", visible: true },
   { id: "col_rprio", name: "Research ranked prio", visible: true },
   { id: "col_iprio", name: "Internal prio level", visible: true },
@@ -1103,6 +1142,7 @@ const createSeedDiscoveryAnalysis = () => {
       id: `row_${generateId()}`,
       cells: {
         col_opp: "One-Step Access to Core Information",
+        col_created_by: "User",
         col_diagram: true,
         col_rprio: "1",
         col_iprio: "Now",
@@ -1123,6 +1163,7 @@ const createSeedDiscoveryAnalysis = () => {
       id: `row_${generateId()}`,
       cells: {
         col_opp: "Universal Search with Smart Filters",
+        col_created_by: "User",
         col_diagram: true,
         col_rprio: "2",
         col_iprio: "Next",
@@ -1143,6 +1184,7 @@ const createSeedDiscoveryAnalysis = () => {
       id: `row_${generateId()}`,
       cells: {
         col_opp: "Bulk Operations for High-Volume Tasks",
+        col_created_by: "User",
         col_diagram: true,
         col_rprio: "3",
         col_iprio: "Next",
@@ -1163,6 +1205,7 @@ const createSeedDiscoveryAnalysis = () => {
       id: `row_${generateId()}`,
       cells: {
         col_opp: "Real-Time Performance and System Response",
+        col_created_by: "User",
         col_diagram: false,
         col_rprio: "4",
         col_iprio: "Now",
@@ -1183,6 +1226,7 @@ const createSeedDiscoveryAnalysis = () => {
       id: `row_${generateId()}`,
       cells: {
         col_opp: "Role-Based Admin Access and Delegation",
+        col_created_by: "User",
         col_diagram: false,
         col_rprio: "5",
         col_iprio: "Later",
@@ -1306,6 +1350,7 @@ const createGeneratedDiscoveryTable = (outcomeName) => ({
       id: `row_${generateId()}`,
       cells: {
         col_opp: `Clarify top admin tasks for ${outcomeName}`,
+        col_created_by: "User",
         col_diagram: "",
         col_rprio: "High",
         col_iprio: "Now",
@@ -1326,6 +1371,7 @@ const createGeneratedDiscoveryTable = (outcomeName) => ({
       id: `row_${generateId()}`,
       cells: {
         col_opp: "Reduce navigation steps for common actions",
+        col_created_by: "User",
         col_diagram: "",
         col_rprio: "Medium",
         col_iprio: "Next",
@@ -1346,6 +1392,7 @@ const createGeneratedDiscoveryTable = (outcomeName) => ({
       id: `row_${generateId()}`,
       cells: {
         col_opp: "Increase confidence with clearer system status",
+        col_created_by: "User",
         col_diagram: "",
         col_rprio: "Medium",
         col_iprio: "Later",
@@ -1471,7 +1518,7 @@ const buildDiscoveryRowsFromResearch = async ({ outcomeName, researchDocuments, 
 
   const rows = aiOpportunities
     .map((opp, index) => {
-      const row = buildDiscoveryRowFromCandidate(opp, generateId);
+      const row = buildDiscoveryRowFromCandidate({ ...opp, createdBy: "AI" }, generateId);
       return {
         ...row,
         cells: {
@@ -7256,6 +7303,7 @@ Do NOT include explanations or any text besides the JSON array.`;
 
   const DEFAULT_COLUMNS = [
       { id: "col_opp", name: "Opportunity", visible: true },
+      { id: "col_created_by", name: "Created by", visible: true },
       { id: "col_rprio", name: "Research ranked prio", visible: true },
       { id: "col_iprio", name: "Internal prio level", visible: true },
       { id: "col_diagram", name: "Diagram", visible: true },
@@ -7407,7 +7455,13 @@ Do NOT include explanations or any text besides the JSON array.`;
   }, [tableData.rows, pendingAiRows.length]);
 
   const addRow = () => {
-    const newRow = { id: generateId(), cells: tableData.columns.reduce((acc, col) => ({ ...acc, [col.id]: "" }), {}) };
+    const newRow = {
+      id: generateId(),
+      cells: tableData.columns.reduce(
+        (acc, col) => ({ ...acc, [col.id]: col.id === "col_created_by" ? "User" : "" }),
+        {}
+      ),
+    };
     updateData({ rows: [...tableData.rows, newRow] });
   };
   const updateCell = (rowId, columnId, value) => {
@@ -7465,7 +7519,7 @@ Do NOT include explanations or any text besides the JSON array.`;
     return tableData.rows;
   }, [tableData.rows, iprioSort, rprioSort]);
 
-  const minWidths = { col_opp: 180, col_rprio: 120, col_iprio: 120, col_diagram: 90, col_obj: 160, col_about: 180, col_impact: 140, col_dk: 160, col_se: 160, col_proto: 140, col_b2b: 140, col_sol: 180, col_exp: 180 };
+  const minWidths = { col_opp: 180, col_created_by: 120, col_rprio: 120, col_iprio: 120, col_diagram: 90, col_obj: 160, col_about: 180, col_impact: 140, col_dk: 160, col_se: 160, col_proto: 140, col_b2b: 140, col_sol: 180, col_exp: 180 };
   const tableWidth = 40 + visibleColumns.reduce((total, col) => total + (columnWidths[col.id] || minWidths[col.id] || 140), 0) + 40;
 
   return (
@@ -7619,6 +7673,13 @@ Do NOT include explanations or any text besides the JSON array.`;
         </div>
       ) : (
         <>
+        <div className="mb-2 flex flex-wrap items-center gap-2 px-1">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Legend</span>
+          <span className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 dark:border-violet-700 dark:bg-violet-900/20 dark:text-violet-300">
+            AI
+          </span>
+          <span className="text-xs text-slate-600 dark:text-slate-300">Generated or filled by AI</span>
+        </div>
         <div className="w-full max-w-full min-w-0 overflow-x-auto border border-slate-200 dark:border-slate-700 rounded-lg">
           <table ref={tableRef} className="table-fixed" style={{ tableLayout: 'fixed', width: `${tableWidth}px` }}>
             <colgroup>
@@ -7632,7 +7693,7 @@ Do NOT include explanations or any text besides the JSON array.`;
             <thead className="bg-slate-50 dark:bg-slate-800 sticky top-0 z-10">
               <tr>
                 <th className="px-2 py-1.5 bg-slate-50 dark:bg-slate-800"></th>
-                <th className="px-2 py-1.5 text-left text-xs font-semibold text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border-l border-slate-200 dark:border-slate-700" colSpan={1}>Opportunities</th>
+                <th className="px-2 py-1.5 text-left text-xs font-semibold text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border-l border-slate-200 dark:border-slate-700" colSpan={2}>Opportunities</th>
                 <th className="px-2 py-1.5 text-left text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 border-l border-slate-200 dark:border-slate-700" colSpan={3}>Priority (Now, Next, Later)</th>
                 <th className="px-2 py-1.5 text-left text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 border-l border-slate-200 dark:border-slate-700" colSpan={1}>Objectives</th>
                 <th className="px-2 py-1.5 text-left text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 border-l border-slate-200 dark:border-slate-700" colSpan={2}>Analysis</th>
@@ -7644,6 +7705,11 @@ Do NOT include explanations or any text besides the JSON array.`;
                 <th className="px-2 py-2 text-left bg-slate-50 dark:bg-slate-800"></th>
                 {visibleColumns.map((col) => (
                   <th key={col.id} className="px-2 py-2 align-top text-left text-xs font-semibold text-slate-700 dark:text-slate-200 border-l border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 relative group" title={col.name}>
+                    {AI_COLUMN_BADGE_IDS.has(col.id) ? (
+                      <span className="mb-1 inline-flex items-center rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-wide text-violet-700 dark:border-violet-700 dark:bg-violet-900/20 dark:text-violet-300">
+                        AI
+                      </span>
+                    ) : null}
                     {col.id === 'col_rprio' ? (
                       <button
                         onClick={() => { setRprioSort(s => s === 'asc' ? 'desc' : s === 'desc' ? null : 'asc'); setIprioSort(null); }}
@@ -7694,14 +7760,15 @@ Do NOT include explanations or any text besides the JSON array.`;
                   </td>
                   {visibleColumns.map((col) => {
                     const sectionBg =
-                      col.id === "col_opp" ? "bg-amber-50/40 dark:bg-amber-900/10" :
+                      (col.id === "col_opp" || col.id === "col_created_by") ? "bg-amber-50/40 dark:bg-amber-900/10" :
                       col.id === "col_diagram" ? "bg-slate-100/50 dark:bg-slate-700/20" :
                       (col.id === "col_dk" || col.id === "col_se" || col.id === "col_proto" || col.id === "col_b2b") ? "bg-purple-50/40 dark:bg-purple-900/10" :
                       (col.id === "col_sol" || col.id === "col_exp") ? "bg-emerald-50/40 dark:bg-emerald-900/10" : "";
                     const isPlanningColumn = col.id === "col_sol" || col.id === "col_exp";
                     const isEvidenceColumn = col.id === "col_dk" || col.id === "col_se" || col.id === "col_proto" || col.id === "col_b2b";
                     const isDiagramColumn = col.id === "col_diagram";
-                    const cellValue = row.cells[col.id] || "";
+                    const isCreatedByColumn = col.id === "col_created_by";
+                    const cellValue = isCreatedByColumn ? getRowCreatedBy(row) : (row.cells[col.id] || "");
                     const teamKey = col.id + "_team";
                     const teamValue = row.cells[teamKey] || "";
                     const rowReferences = linkedDocumentsByRowId[row.id] || [];
@@ -7719,6 +7786,12 @@ Do NOT include explanations or any text besides the JSON array.`;
                               className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400"
                               aria-label="Toggle show in diagram"
                             />
+                          </div>
+                        ) : isCreatedByColumn ? (
+                          <div className="py-1">
+                            <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-none ${cellValue === "AI" ? "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-700 dark:bg-violet-900/20 dark:text-violet-300" : "border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"}`}>
+                              {cellValue || "User"}
+                            </span>
                           </div>
                         ) : isEvidenceColumn ? (
                           <ExpandableEvidenceCell
@@ -7979,20 +8052,6 @@ export default function RequirementAnalyzer() {
     
     return (
       <div className="flex items-center gap-6 shrink-0 text-sm">
-        <button
-          onClick={() => setSidebarOpen(true)}
-          disabled={!active}
-          className={`transition-colors ${
-            !active
-              ? "text-slate-300 dark:text-slate-600 cursor-not-allowed"
-              : sidebarOpen
-              ? "text-slate-900 dark:text-slate-100 font-medium"
-              : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
-          }`}
-          title={!active ? "Projects panel" : "Show projects panel"}
-        >
-          Projects
-        </button>
         <button
           onClick={() => {
             setActiveResearchTab("documents");
@@ -8723,6 +8782,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                     cells: { 
                       col_opp: p.value.col_opp || "",
                       col_diagram: "",
+                      col_created_by: "AI",
                       col_rprio: p.value.col_rprio || "",
                       col_iprio: p.value.col_iprio || "",
                       col_obj: "",
@@ -8798,6 +8858,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
             cells: { 
               col_opp: value.col_opp || "",
               col_diagram: "",
+              col_created_by: "AI",
               col_rprio: value.col_rprio || "",
               col_iprio: value.col_iprio || "",
               col_obj: "",
@@ -9216,13 +9277,12 @@ Be concise and actionable. Respond in the same language the user writes in.`;
         >
           <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-700">
             <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Set up Discovery Project</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Step {projectSetupStep} of 4</p>
           </div>
 
           <div className="px-5 py-4 space-y-4 max-h-[65vh] overflow-y-auto">
             {projectSetupStep === 1 && (
               <div>
-                <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1.5">Project name</label>
+                <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1.5">Project name</label>
                 <input
                   type="text"
                   value={projectSetupName}
@@ -9246,7 +9306,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                         className="mt-0.5"
                       />
                       <span>
-                        <span className="block text-sm font-medium text-slate-700 dark:text-slate-200">Link existing folder</span>
+                        <span className="block text-sm font-semibold text-slate-700 dark:text-slate-200">Link existing folder</span>
                         <span className="block text-xs text-slate-500 dark:text-slate-400">Use existing Research Data.</span>
                       </span>
                     </label>
@@ -9276,7 +9336,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
                     className="mt-0.5"
                   />
                   <span>
-                    <span className="block text-sm font-medium text-slate-700 dark:text-slate-200">Create new folder</span>
+                    <span className="block text-sm font-semibold text-slate-700 dark:text-slate-200">Create new folder</span>
                     <span className="block text-xs text-slate-500 dark:text-slate-400">Create a dedicated folder for this project.</span>
                   </span>
                 </label>
@@ -9297,7 +9357,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
             {projectSetupStep === 3 && (
               <>
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm text-slate-700 dark:text-slate-200">Upload research documents (optional)</p>
+                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Upload research documents (optional)</p>
                   <button
                     type="button"
                     onClick={() => projectSetupUploadInputRef.current?.click()}
@@ -9361,7 +9421,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
             {projectSetupStep === 4 && (
               <>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1.5">Initial outcome</label>
+                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1.5">Initial outcome</label>
                   <input
                     type="text"
                     value={projectSetupOutcomeName}
@@ -9385,35 +9445,50 @@ Be concise and actionable. Respond in the same language the user writes in.`;
             )}
           </div>
 
-          <div className="px-5 py-4 border-t border-slate-100 dark:border-slate-700 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={resetProjectSetupWizard}
-              className="px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded text-slate-600 dark:text-slate-300"
-            >
-              Cancel
-            </button>
-            {projectSetupStep > 1 && (
+          <div className="px-5 py-4 border-t border-slate-100 dark:border-slate-700">
+            <div className="flex items-center justify-center gap-2" aria-label="Setup progress" role="status">
+              {[1, 2, 3, 4].map((stepNumber) => (
+                <span
+                  key={`setup_step_dot_${stepNumber}`}
+                  className={`h-2 w-2 rounded-full transition-colors ${
+                    stepNumber === projectSetupStep
+                      ? "bg-indigo-600 dark:bg-indigo-400"
+                      : "bg-slate-300 dark:bg-slate-600"
+                  }`}
+                />
+              ))}
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setProjectSetupStep((prev) => Math.max(1, prev - 1))}
+                onClick={resetProjectSetupWizard}
                 className="px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded text-slate-600 dark:text-slate-300"
               >
-                Back
+                Cancel
               </button>
-            )}
-            <button
-              type="submit"
-              disabled={
-                projectSetupSubmitting
-                || (projectSetupStep === 1 && !String(projectSetupName || "").trim())
-                || (projectSetupStep === 2 && projectSetupMode === "create" && !String(projectSetupNewFolderName || "").trim())
-                || (projectSetupStep === 4 && (!String(projectSetupOutcomeName || "").trim() || !projectSetupOutcomeQuality.isValid))
-              }
-              className="px-3 py-2 text-sm font-medium bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {projectSetupStep < 4 ? "Next" : (projectSetupSubmitting ? "Creating..." : "Create project")}
-            </button>
+              {projectSetupStep > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setProjectSetupStep((prev) => Math.max(1, prev - 1))}
+                  className="px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded text-slate-600 dark:text-slate-300"
+                >
+                  Back
+                </button>
+              )}
+              <button
+                type="submit"
+                disabled={
+                  projectSetupSubmitting
+                  || (projectSetupStep === 1 && !String(projectSetupName || "").trim())
+                  || (projectSetupStep === 2 && projectSetupMode === "create" && !String(projectSetupNewFolderName || "").trim())
+                  || (projectSetupStep === 4 && (!String(projectSetupOutcomeName || "").trim() || !projectSetupOutcomeQuality.isValid))
+                }
+                className="px-3 py-2 text-sm font-medium bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {projectSetupStep < 4 ? "Next" : (projectSetupSubmitting ? "Creating..." : "Create project")}
+              </button>
+            </div>
           </div>
         </form>
       </div>
