@@ -11210,7 +11210,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
               <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
                 <button
                   onClick={() => toggleAboutSection("analysis")}
-                  className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                  className="w-full px-4 py-3 flex items-center justify-between bg-white dark:bg-slate-700/40 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                   aria-expanded={aboutExpandedSections.analysis}
                 >
                   <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Analysis</span>
@@ -11281,7 +11281,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
               <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
                 <button
                   onClick={() => toggleAboutSection("data")}
-                  className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                  className="w-full px-4 py-3 flex items-center justify-between bg-white dark:bg-slate-700/40 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                   aria-expanded={aboutExpandedSections.data}
                 >
                   <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Data</span>
@@ -11321,7 +11321,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
               <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
                 <button
                   onClick={() => toggleAboutSection("potentialData")}
-                  className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                  className="w-full px-4 py-3 flex items-center justify-between bg-white dark:bg-slate-700/40 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                   aria-expanded={aboutExpandedSections.potentialData}
                 >
                   <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Data</span>
@@ -11342,7 +11342,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
               <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
                 <button
                   onClick={() => toggleAboutSection("potentialReliability")}
-                  className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                  className="w-full px-4 py-3 flex items-center justify-between bg-white dark:bg-slate-700/40 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                   aria-expanded={aboutExpandedSections.potentialReliability}
                 >
                   <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Reliability and recovery</span>
@@ -11363,7 +11363,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
               <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
                 <button
                   onClick={() => toggleAboutSection("potentialUx")}
-                  className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                  className="w-full px-4 py-3 flex items-center justify-between bg-white dark:bg-slate-700/40 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                   aria-expanded={aboutExpandedSections.potentialUx}
                 >
                   <span className="text-sm font-medium text-slate-800 dark:text-slate-100">UX and transparency</span>
@@ -11384,7 +11384,7 @@ Be concise and actionable. Respond in the same language the user writes in.`;
               <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-800">
                 <button
                   onClick={() => toggleAboutSection("potentialConsistency")}
-                  className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                  className="w-full px-4 py-3 flex items-center justify-between bg-white dark:bg-slate-700/40 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                   aria-expanded={aboutExpandedSections.potentialConsistency}
                 >
                   <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Consistency and concurrency</span>
